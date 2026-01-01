@@ -1,4 +1,5 @@
 <?php 
+// dashboard.php — Redesigned with Fantasy Premier League Theme
 session_start();
 include 'connect.php';
 
@@ -8,7 +9,9 @@ if (!isset($_SESSION['user_id'])) {
 }
 $uid = (int)$_SESSION['user_id'];
 
-
+/* -------------------------
+   Helper: fetch one value
+--------------------------*/
 function fetch_one($conn, $sql) {
     $r = $conn->query($sql);
     if (!$r) return null;
@@ -16,19 +19,27 @@ function fetch_one($conn, $sql) {
     return $row ? $row[0] : null;
 }
 
+/* -------------------------
+   User info
+--------------------------*/
 $stmt = $conn->prepare("SELECT username, favorite_team, avatar FROM users WHERE id = ? LIMIT 1");
 $stmt->bind_param("i", $uid);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc() ?: ['username'=>'User','favorite_team'=>'—','avatar'=>'/PL_img/default-avatar.png'];
 $stmt->close();
 
-
+/* -----------------------------------------------------
+   UPDATED SECTION: Gameweeks auto-detected
+------------------------------------------------------*/
 $first_gw = (int) fetch_one($conn, "SELECT MIN(gameweek) FROM matches WHERE home_score IS NOT NULL OR away_score IS NOT NULL");
 $last_gw  = (int) fetch_one($conn, "SELECT MAX(gameweek) FROM matches");
 
 $current_gw = $last_gw;
 $prev_gw = max($first_gw, $current_gw - 1);
 
+/* -------------------------
+   Weekly points for Chart (with doubles)
+--------------------------*/
 $gw_sql = "
   SELECT 
     m.gameweek AS gw,
@@ -58,12 +69,16 @@ for ($g = $first_gw; $g <= $last_gw; $g++) {
 $chart_labels_js = json_encode($gw_labels);
 $chart_data_js = json_encode($gw_data);
 
-
+/* -------------------------
+   Current total points
+--------------------------*/
 $current_points = (int) fetch_one($conn, "
     SELECT COALESCE(SUM(COALESCE(points,0)),0) FROM score_exact WHERE user_id = $uid
 ");
 
-
+/* -------------------------
+   Prev & current_by_gw
+--------------------------*/
 $prev_points = 0;
 if ($prev_gw >= $first_gw) {
     $prev_points = (int) fetch_one($conn, "
@@ -80,6 +95,9 @@ $cur_points_by_gw = (int) fetch_one($conn, "
     WHERE se.user_id = $uid AND m.gameweek <= $current_gw
 ");
 
+/* -------------------------
+   Leaderboard
+--------------------------*/
 $leader_sql = "
   SELECT u.id, u.username, COALESCE(SUM(COALESCE(se.points,0)),0) AS total_points
   FROM users u
@@ -106,7 +124,9 @@ foreach ($leaders as $l) {
     if ((int)$l['id'] === $uid) { $current_rank = $l['pos']; break; }
 }
 
-
+/* -------------------------
+   Prev rank
+--------------------------*/
 if ($prev_gw >= $first_gw) {
     $prev_rank = (int) fetch_one($conn, "
       SELECT COUNT(*)+1 FROM (
@@ -128,11 +148,16 @@ if ($prev_gw >= $first_gw) {
 
 $rank_diff = $prev_rank - $current_rank;
 
-
+/* -------------------------
+   Badge
+--------------------------*/
 $badge = 'bronze';
 if ($current_rank <= 3) $badge = 'gold';
 elseif ($current_rank <= 10) $badge = 'silver';
 
+/* -------------------------
+   Recent matches
+--------------------------*/
 $recent_sql = "
   SELECT se.match_id, se.predicted_home, se.predicted_away, se.points AS db_points,
          m.home_team, m.away_team, m.home_score, m.away_score, m.match_date
@@ -162,182 +187,372 @@ $leaders_display = array_slice($leaders, 0, 5);
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Dashboard — PL Predictor</title>
+<title>Dashboard | Fantasy Premier League</title>
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.0/css/all.min.css" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
 <style>
-:root{
-  --pl-dark:#06060a;
-  --pl-purple:#37003c;
-  --pl-pink:#e90052;
-  --card:#120014;
-  --muted:#bfb7c6;
+:root {
+  --fpl-blue: #37003c;
+  --fpl-green: #00ff87;
+  --fpl-light-blue: #1c9bef;
+  --fpl-white: #ffffff;
+  --fpl-dark-bg: #0a0222;
+  --fpl-card-bg: #12092e;
+  --fpl-border: #2a1a5e;
+  --fpl-muted: #a0a0c0;
 }
 
-body{
-  background: #050406;
-  color: #eae8ee;
-  font-family: Inter;
+body {
+  background: 
+    linear-gradient(135deg, #0a0222 0%, #1a0b3a 30%, #2a1a5e 100%),
+    radial-gradient(circle at 20% 80%, rgba(0, 255, 135, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 80% 20%, rgba(28, 155, 239, 0.06) 0%, transparent 40%);
+  color: #ffffff;
+  font-family: 'Montserrat', sans-serif;
+  min-height: 100vh;
 }
 
-/* -------------------------------------------------------------
-   🔥 OPTION A — BOLDER PL THEME
-   Stronger borders, deeper shadows, more premium contrast
-------------------------------------------------------------- */
-
+/* FPL-inspired card */
 .card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
-  border: 1.5px solid rgba(233,0,82,0.12);
-  box-shadow: 0 10px 26px rgba(2,2,6,0.8), inset 0 0 12px rgba(233,0,82,0.05);
-  backdrop-filter: blur(7px);
+  background: linear-gradient(145deg, rgba(18, 9, 46, 0.95) 0%, rgba(42, 26, 94, 0.8) 100%);
+  border: 2px solid var(--fpl-border);
+  border-radius: 16px;
+  box-shadow: 
+    0 10px 30px rgba(0, 0, 0, 0.4),
+    0 0 20px rgba(0, 255, 135, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
 }
 
-.accent-border {
-  border: 2px solid rgba(233,0,82,0.25);
-  box-shadow: 0 0 30px rgba(233,0,82,0.15), inset 0 0 20px rgba(55,0,60,0.1);
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--fpl-green), var(--fpl-light-blue));
+  border-radius: 16px 16px 0 0;
 }
 
-.h1 { font-size: 1.85rem; font-weight: 800; }
-.h2 { font-size: 1.2rem; font-weight: 700; }
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 
+    0 15px 35px rgba(0, 0, 0, 0.5),
+    0 0 30px rgba(0, 255, 135, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.glass-box {
+  background: linear-gradient(135deg, rgba(18, 9, 46, 0.9) 0%, rgba(42, 26, 94, 0.85) 100%);
+  border: 2px solid var(--fpl-border);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  box-shadow: 
+    0 20px 40px rgba(0, 0, 0, 0.5),
+    0 0 40px rgba(55, 0, 60, 0.3);
+}
 
 .table-row:hover { 
-  background: rgba(255,255,255,0.04); 
-  transform: translateY(-3px); 
+  background: linear-gradient(90deg, rgba(0, 255, 135, 0.05) 0%, rgba(28, 155, 239, 0.05) 100%);
+  transform: scale(1.01);
+  transition: all 0.2s ease;
 }
 
+/* Navigation */
+.nav-gradient {
+  background: linear-gradient(90deg, var(--fpl-blue) 0%, #2a0d5e 100%);
+  border-bottom: 3px solid var(--fpl-green);
+}
+
+/* Avatar styling */
 .avatar-ring {
-  box-shadow: 0 0 22px rgba(233,0,82,0.4);
-  border: 4px solid rgba(233,0,82,0.25);
+  border: 3px solid transparent;
+  background: linear-gradient(135deg, var(--fpl-green), var(--fpl-light-blue)) border-box;
+  box-shadow: 0 0 20px rgba(0, 255, 135, 0.3);
 }
 
+.avatar-lg {
+  border: 4px solid transparent;
+  background: linear-gradient(135deg, var(--fpl-green), var(--fpl-light-blue)) border-box;
+  box-shadow: 0 0 30px rgba(0, 255, 135, 0.4);
+}
+
+/* Badge styling */
 .badge-glow {
-  box-shadow: 0 0 22px rgba(233,0,82,0.45);
+  box-shadow: 0 0 25px rgba(0, 255, 135, 0.5);
+  background: linear-gradient(135deg, var(--fpl-green), var(--fpl-light-blue));
+}
+
+/* Rank badges */
+.rank-1 { 
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  color: #000;
+  font-weight: 800;
+}
+.rank-2 { 
+  background: linear-gradient(135deg, #c0c0c0 0%, #e8e8e8 100%);
+  color: #000;
+  font-weight: 800;
+}
+.rank-3 { 
+  background: linear-gradient(135deg, #cd7f32 0%, #e6a95c 100%);
+  color: #000;
+  font-weight: 800;
+}
+
+/* Table styling */
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+th {
+  background: linear-gradient(90deg, var(--fpl-blue) 0%, #2a1a5e 100%);
+  color: var(--fpl-green);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border: none;
+}
+
+td {
+  border-bottom: 1px solid rgba(42, 26, 94, 0.5);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(18, 9, 46, 0.5);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, var(--fpl-green) 0%, var(--fpl-light-blue) 100%);
+  border-radius: 5px;
+}
+
+/* Typography */
+.h1 { 
+  font-size: 2rem; 
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--fpl-green) 0%, var(--fpl-light-blue) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.h2 { 
+  font-size: 1.4rem; 
+  font-weight: 800;
+  color: white;
+}
+
+.card-value {
+  font-size: 2.5rem;
+  font-weight: 900;
+  background: linear-gradient(135deg, var(--fpl-green) 0%, var(--fpl-light-blue) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 20px rgba(0, 255, 135, 0.3);
 }
 </style>
 </head>
 <body class="antialiased min-h-screen">
 
 
-<nav class="w-full py-4 px-4 md:px-8 flex items-center justify-between">
+<nav class="w-full nav-gradient py-5 px-6 flex items-center justify-between fixed top-0 left-0 right-0 z-50 shadow-2xl">
   <div class="flex items-center gap-4">
-    <img src="/PL_img/PL_LOGO1.png" alt="PL" class="h-14 lg:h-16 drop-shadow-md">
+    <div class="relative">
+      <div class="w-14 h-14 rounded-full bg-gradient-to-br from-[var(--fpl-green)] to-[var(--fpl-light-blue)] flex items-center justify-center shadow-lg">
+        <span class="text-black font-extrabold text-xl">FPL</span>
+      </div>
+      <div class="absolute -top-1 -right-1 w-6 h-6 bg-[var(--fpl-green)] rounded-full border-2 border-[var(--fpl-blue)]"></div>
+    </div>
     <div>
-      <div class="text-white font-extrabold text-lg">PL Predictor</div>
-      <div class="text-[var(--muted)] text-xs">Dashboard</div>
+      <div class="text-white font-black text-lg">score-exact Premier <span class="text-[var(--fpl-green)]">League</span></div>
+      <div class="text-[var(--fpl-muted)] text-xs font-semibold">Manager Dashboard</div>
     </div>
   </div>
 
-  <div class="hidden md:flex items-center gap-6">
-    <a href="predictions.php" class="text-sm font-semibold uppercase tracking-wide hover:text-[var(--pl-pink)]">Predictions</a>
-    <a href="leaderboard.php" class="text-sm font-semibold uppercase tracking-wide hover:text-[var(--pl-pink)]">Leaderboard</a>
-    <a href="my_predictions.php" class="text-sm font-semibold uppercase tracking-wide hover:text-[var(--pl-pink)]">My Predictions</a>
+  <div class="hidden md:flex items-center gap-8">
+    <a href="predictions.php" class="text-sm font-semibold uppercase tracking-wide hover:text-[var(--fpl-green)] transition-colors">Predictions</a>
+    <a href="leaderboard.php" class="text-sm font-semibold uppercase tracking-wide hover:text-[var(--fpl-green)] transition-colors">Leaderboard</a>
+    <a href="my_predictions.php" class="text-sm font-semibold uppercase tracking-wide hover:text-[var(--fpl-green)] transition-colors">My Predictions</a>
   </div>
 
   <div class="flex items-center gap-4">
     <a href="profile.php" class="hidden md:flex items-center gap-3">
-      <img src="<?= htmlspecialchars($user['avatar']) ?>" alt="avatar" class="w-10 h-10 rounded-full object-cover avatar-ring">
-      <div class="text-xs text-[var(--muted)]"><?= htmlspecialchars($user['username']) ?></div>
+      <div class="relative">
+        <img src="<?= htmlspecialchars($user['avatar']) ?>" alt="avatar" class="w-12 h-12 rounded-full object-cover avatar-ring">
+      </div>
+      <div>
+        <div class="text-sm font-bold text-white"><?= htmlspecialchars($user['username']) ?></div>
+        <div class="text-xs text-[var(--fpl-muted)]">Manager</div>
+      </div>
     </a>
 
     <div class="md:hidden">
-      <button id="mobile-toggle" class="p-2 rounded-md card">
-        <i class="fa-solid fa-bars text-[var(--muted)]"></i>
+      <button id="mobile-toggle" class="p-3 rounded-lg bg-[var(--fpl-blue)]/50 hover:bg-[var(--fpl-blue)] transition-colors">
+        <i class="fa-solid fa-bars text-white text-lg"></i>
       </button>
     </div>
   </div>
 </nav>
 
-<div id="mobile-menu" class="md:hidden px-4 pb-4">
-  <div class="card p-3 rounded-lg">
-    <a href="predictions.php" class="block py-2 font-medium hover:text-[var(--pl-pink)]">Predictions</a>
-    <a href="leaderboard.php" class="block py-2 font-medium hover:text-[var(--pl-pink)]">Leaderboard</a>
-    <a href="my_predictions.php" class="block py-2 font-medium hover:text-[var(--pl-pink)]">My Predictions</a>
+<div id="mobile-menu" class="hidden md:hidden px-6 pb-6 pt-24 nav-gradient shadow-xl">
+  <div class="glass-box p-6 rounded-xl">
+    <a href="predictions.php" class="block py-3 font-semibold hover:text-[var(--fpl-green)] transition-colors border-b border-[var(--fpl-border)]">Predictions</a>
+    <a href="leaderboard.php" class="block py-3 font-semibold hover:text-[var(--fpl-green)] transition-colors border-b border-[var(--fpl-border)]">Leaderboard</a>
+    <a href="my_predictions.php" class="block py-3 font-semibold hover:text-[var(--fpl-green)] transition-colors">My Predictions</a>
   </div>
 </div>
 
-<main class="max-w-dashboard mx-auto p-5 md:p-8 space-y-6">
+<main class="max-w-7xl mx-auto p-6 pt-32 space-y-8 animate-fade-in">
 
-  <section class="card accent-border rounded-2xl p-6 flex flex-col lg:flex-row gap-6 items-center">
-    <div class="flex items-center gap-4 flex-1">
-      <div class="relative"><a href="profile.php">
-        <img src="<?= htmlspecialchars($user['avatar']) ?>" alt="avatar" class="rounded-full avatar-lg w-20 h-20 object-cover"></a>
-        <div class="absolute -bottom-2 -right-2 rounded-full p-1 badge-glow" style="background: linear-gradient(90deg,var(--pl-pink),var(--pl-purple));">
-          <div class="w-6 h-6 rounded-full bg-white/90 flex items-center justify-center text-xs font-bold text-black"><?= strtoupper(substr(htmlspecialchars($user['username']),0,1)) ?></div>
+  <section class="card rounded-2xl p-8">
+    <div class="flex flex-col lg:flex-row gap-8 items-center">
+      <div class="flex items-center gap-6 flex-1">
+        <div class="relative">
+          <a href="profile.php" class="hidden sm:block md:block lg:block">
+            <img src="<?= htmlspecialchars($user['avatar']) ?>" alt="avatar" class="rounded-full avatar-lg w-24 h-24 object-cover">
+          </a>
+          <div class="absolute -bottom-2 -right-2 rounded-full p-1 badge-glow">
+            <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center text-sm font-black text-white">
+              <?= strtoupper(substr(htmlspecialchars($user['username']),0,1)) ?>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="h1"><?= htmlspecialchars($user['username']) ?></div>
+          <div class="text-[var(--fpl-muted)] font-medium mt-2">
+            <i class="fa-solid fa-users mr-2"></i>Supports: <span class="text-white font-semibold"><?= htmlspecialchars($user['favorite_team']) ?></span>
+          </div>
+          <div class="mt-4 flex gap-3 items-center">
+            <div class="px-4 py-2 rounded-full text-sm font-bold bg-gradient-to-r from-[var(--fpl-green)]/20 to-[var(--fpl-light-blue)]/20 border border-[var(--fpl-green)]/30 text-[var(--fpl-green)]">
+              Badge: <?= strtoupper($badge) ?>
+            </div>
+            <div class="px-4 py-2 rounded-full text-sm font-bold bg-[var(--fpl-blue)]/50 border border-[var(--fpl-border)] text-white">
+              Rank #<?= $current_rank ?>
+            </div>
+          </div>
         </div>
       </div>
-      <div>
-        <div class="h1 text-white"><?= htmlspecialchars($user['username']) ?></div>
-        <div class="text-sm text-[var(--muted)]">Favorite team: <span class="text-white font-semibold"><?= htmlspecialchars($user['favorite_team']) ?></span></div>
-        <div class="mt-3 flex gap-2 items-center">
-          <div class="px-3 py-1 rounded-full text-xs font-semibold bg-[var(--pl-pink)]/10 text-[var(--pl-pink)]">Badge: <?= strtoupper($badge) ?></div>
-          <div class="px-3 py-1 rounded-full text-xs font-semibold bg-white/5 text-white">Rank #<?= $current_rank ?></div>
-        </div>
-      </div>
-    </div>
 
-    <div class="flex gap-6 items-center">
-      <div class="text-center">
-        <div class="text-[1.6rem] font-extrabold text-white"><?= $current_points ?></div>
-        <div class="text-xs text-[var(--muted)]">Total Points</div>
+      <div class="flex gap-8 items-center">
+        <div class="text-center">
+          <div class="card-value"><?= $current_points ?></div>
+          <div class="text-[var(--fpl-muted)] text-sm font-semibold mt-2">Total Points</div>
+        </div>
+        <div class="hidden lg:block h-16 w-px bg-[var(--fpl-border)]"></div>
+        <div class="text-center">
+          <div class="text-2xl font-black text-white">GW <?= $current_gw ?></div>
+          <div class="text-[var(--fpl-muted)] text-sm font-semibold mt-2">Current</div>
+        </div>
       </div>
     </div>
   </section>
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-    <div class="lg:col-span-2 space-y-6">
+    <div class="lg:col-span-2 space-y-8">
 
-      <div class="card accent-border rounded-2xl p-6">
-        <div class="flex items-center justify-between mb-4">
+      <div class="card rounded-2xl p-8">
+        <div class="flex flex-col md:flex-row items-start md:items-center justify-between mb-6">
           <div>
-            <div class="h2 text-white">Weekly Points <span class="text-[var(--muted)] text-sm ml-2">(Using doubles)</span></div>
-            <div class="text-xs text-[var(--muted)]">Gameweeks <?= $first_gw ?> → <?= $last_gw ?></div>
+            <div class="h2">Weekly Performance</div>
+            <div class="text-[var(--fpl-muted)] font-medium mt-2">
+              Gameweeks <?= $first_gw ?> → <?= $last_gw ?> • Doubles included
+            </div>
           </div>
-          <div class="text-sm text-[var(--muted)]">Tip: doubles are applied only on chart data</div>
+          <div class="mt-4 md:mt-0 px-4 py-2 rounded-full bg-[var(--fpl-blue)]/30 border border-[var(--fpl-border)] text-sm font-semibold">
+            <i class="fa-solid fa-chart-line mr-2 text-[var(--fpl-green)]"></i>Live Chart
+          </div>
         </div>
 
         <div class="w-full">
-          <canvas id="weeklyChart" height="170"></canvas>
+          <canvas id="weeklyChart" height="180"></canvas>
         </div>
       </div>
 
-      <div class="card rounded-2xl p-6">
-        <div class="flex items-center justify-between mb-3">
-          <div class="h2 text-white">Recent Performance</div>
-          <div class="text-xs text-[var(--muted)]">Finished matches only</div>
+      <div class="card rounded-2xl p-8">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <div class="h2">Recent Predictions</div>
+            <div class="text-[var(--fpl-muted)] font-medium">Last 10 completed matches</div>
+          </div>
+          <div class="text-sm text-[var(--fpl-muted)] font-semibold">
+            <i class="fa-solid fa-calendar-check mr-2"></i>Finished only
+          </div>
         </div>
 
-        <div class="overflow-x-auto">
-          <table class="w-full text-left">
-            <thead class="text-[var(--muted)] text-xs border-b border-gray-700">
-              <tr>
-                <th class="py-3">Match</th>
-                <th class="py-3">Prediction</th>
-                <th class="py-3">Result</th>
-                <th class="py-3">Points</th>
+        <div class="overflow-x-auto rounded-xl border border-[var(--fpl-border)]">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-gradient-to-r from-[var(--fpl-blue)] to-[#2a1a5e]">
+                <th class="py-4 px-6 text-left font-bold text-[var(--fpl-green)]">Match</th>
+                <th class="py-4 px-6 text-left font-bold text-[var(--fpl-green)]">Prediction</th>
+                <th class="py-4 px-6 text-left font-bold text-[var(--fpl-green)]">Result</th>
+                <th class="py-4 px-6 text-left font-bold text-[var(--fpl-green)]">Points</th>
               </tr>
             </thead>
             <tbody>
               <?php if (empty($recent)): ?>
-                <tr><td colspan="4" class="py-6 text-[var(--muted)]">No finished matches yet.</td></tr>
+                <tr>
+                  <td colspan="4" class="py-8 text-center text-[var(--fpl-muted)]">
+                    <i class="fa-solid fa-inbox text-2xl mb-2 block"></i>
+                    No completed matches yet
+                  </td>
+                </tr>
               <?php else: ?>
                 <?php foreach ($recent as $r): ?>
-                  <tr class="table-row border-b border-gray-800">
-                    <td class="py-3"><div class="text-sm text-white font-medium"><?= htmlspecialchars($r['teams']) ?></div>
-                      <div class="text-xs text-[var(--muted)]"><?= date('M j, Y', strtotime($r['date'])) ?></div>
+                  <tr class="table-row border-b border-[var(--fpl-border)] last:border-b-0">
+                    <td class="py-4 px-6">
+                      <div class="font-semibold text-white"><?= htmlspecialchars($r['teams']) ?></div>
+                      <div class="text-xs text-[var(--fpl-muted)] mt-1">
+                        <i class="fa-regular fa-calendar mr-1"></i><?= date('M j, Y', strtotime($r['date'])) ?>
+                      </div>
                     </td>
-                    <td class="py-3 text-[var(--muted)]"><?= htmlspecialchars($r['pred']) ?></td>
-                    <td class="py-3 text-[var(--muted)]"><?= htmlspecialchars($r['result']) ?></td>
-                    <td class="py-3 font-bold <?php
-                          if ($r['points'] >= 3) echo 'text-green-400';
-                          elseif ($r['points'] == 1) echo 'text-yellow-300';
-                          else echo 'text-red-400';
+                    <td class="py-4 px-6">
+                      <span class="px-3 py-1 rounded-full bg-[var(--fpl-blue)]/30 border border-[var(--fpl-border)] text-[var(--fpl-muted)] font-bold">
+                        <?= htmlspecialchars($r['pred']) ?>
+                      </span>
+                    </td>
+                    <td class="py-4 px-6">
+                      <span class="px-3 py-1 rounded-full bg-[var(--fpl-card-bg)] border border-[var(--fpl-border)] text-white font-bold">
+                        <?= htmlspecialchars($r['result']) ?>
+                      </span>
+                    </td>
+                    <td class="py-4 px-6">
+                      <span class="inline-flex items-center justify-center w-10 h-10 rounded-full font-black text-lg
+                        <?php
+                          if ($r['points'] >= 3) echo 'bg-green-500/20 text-green-400 border border-green-500/30';
+                          elseif ($r['points'] == 1) echo 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30';
+                          else echo 'bg-red-500/20 text-red-400 border border-red-500/30';
                         ?>">
-                      <?= $r['points'] ?>
+                        <?= $r['points'] ?>
+                      </span>
                     </td>
                   </tr>
                 <?php endforeach; ?>
@@ -349,52 +564,93 @@ body{
 
     </div>
 
-    <aside class="space-y-6">
+    <aside class="space-y-8">
 
-      <div class="card rounded-2xl p-4">
-        <div class="flex items-center justify-between mb-3">
-          <div class="text-sm font-semibold text-white">Top Players</div>
-          <a href="leaderboard.php" class="text-xs text-[var(--muted)] hover:text-white">See all</a>
+      <div class="card rounded-2xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <div class="h2 text-white">Top Managers</div>
+            <div class="text-sm text-[var(--fpl-muted)]">Global Ranking</div>
+          </div>
+          <a href="leaderboard.php" class="text-xs font-bold text-[var(--fpl-green)] hover:text-[var(--fpl-light-blue)] transition-colors">
+            View All <i class="fa-solid fa-arrow-right ml-1"></i>
+          </a>
         </div>
 
-        <ol class="space-y-3">
+        <ol class="space-y-4">
           <?php foreach ($leaders_display as $pl): ?>
-            <li class="flex items-center justify-between">
+            <li class="flex items-center justify-between p-3 rounded-lg hover:bg-[var(--fpl-blue)]/20 transition-colors">
               <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-full bg-white/3 flex items-center justify-center text-xs font-bold text-[var(--muted)]"><?= $pl['pos'] ?></div>
-                <a href="profile.php?id=<?= $pl['id'] ?>" class="text-sm font-semibold hover:text-[var(--pl-pink)]"><?= htmlspecialchars($pl['username']) ?></a>
+                <div class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm
+                  <?php if ($pl['pos'] == 1): ?> rank-1
+                  <?php elseif ($pl['pos'] == 2): ?> rank-2
+                  <?php elseif ($pl['pos'] == 3): ?> rank-3
+                  <?php else: ?> bg-[var(--fpl-card-bg)] border border-[var(--fpl-border)] text-[var(--fpl-muted)]
+                  <?php endif; ?>">
+                  <?= $pl['pos'] ?>
+                </div>
+                <div>
+                    <?= htmlspecialchars($pl['username']) ?>
+                </div>
               </div>
-              <div class="text-sm font-bold text-white"><?= $pl['points'] ?></div>
+              <div class="font-black text-lg bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] bg-clip-text text-transparent">
+                <?= $pl['points'] ?>
+              </div>
             </li>
           <?php endforeach; ?>
         </ol>
       </div>
 
-      <div class="rounded-2xl p-4" style="background: linear-gradient(180deg,#1b0716, #120014); border:1px solid rgba(233,0,82,0.08);">
-        <div class="text-xs text-[var(--muted)]">Your Badge</div>
-        <div class="mt-3 text-center">
+      <div class="card rounded-2xl p-6 text-center" style="background: linear-gradient(180deg, #1b0716, #12092e);">
+        <div class="text-sm text-[var(--fpl-muted)] font-semibold uppercase tracking-wider mb-3">Your Achievement</div>
+        <div class="my-4">
           <?php if ($badge == 'gold'): ?>
-            <div class="inline-block px-5 py-2 rounded-full text-black font-bold" style="background:linear-gradient(90deg,#ffd54a,#ffb400)">GOLD</div>
+            <div class="inline-flex items-center gap-3 px-6 py-3 rounded-full font-black text-lg shadow-lg" 
+                 style="background:linear-gradient(135deg,#ffd700,#ffb400)">
+              <i class="fa-solid fa-trophy"></i>
+              <span>GOLD BADGE</span>
+            </div>
           <?php elseif ($badge == 'silver'): ?>
-            <div class="inline-block px-5 py-2 rounded-full text-black font-bold" style="background:linear-gradient(90deg,#e6e7eb,#bdbec2)">SILVER</div>
+            <div class="inline-flex items-center gap-3 px-6 py-3 rounded-full font-black text-lg shadow-lg" 
+                 style="background:linear-gradient(135deg,#e6e7eb,#bdbec2)">
+              <i class="fa-solid fa-medal"></i>
+              <span>SILVER BADGE</span>
+            </div>
           <?php else: ?>
-            <div class="inline-block px-5 py-2 rounded-full text-black font-bold" style="background:linear-gradient(90deg,#d9a441,#b0730a)">BRONZE</div>
+            <div class="inline-flex items-center gap-3 px-6 py-3 rounded-full font-black text-lg shadow-lg" 
+                 style="background:linear-gradient(135deg,#d9a441,#b0730a)">
+              <i class="fa-solid fa-award"></i>
+              <span>BRONZE BADGE</span>
+            </div>
           <?php endif; ?>
         </div>
-        <div class="text-sm text-[var(--muted)] mt-3 text-center">Rank #<?= $current_rank ?></div>
+        <div class="text-2xl font-black text-white mt-4">Rank #<?= $current_rank ?></div>
+        <div class="text-[var(--fpl-muted)] text-sm mt-2">Out of <?= count($leaders) ?> managers</div>
       </div>
 
-      <div class="card rounded-2xl p-4">
-        <div class="text-xs text-[var(--muted)]">Ranking Progress</div>
-        <div class="mt-3">
-          <div class="text-2xl font-extrabold text-white"><?= $current_points ?> pts</div>
-          <div class="mt-3">
+      <div class="card rounded-2xl p-6">
+        <div class="text-sm text-[var(--fpl-muted)] font-semibold uppercase tracking-wider">Rank Progress</div>
+        <div class="mt-4">
+          <div class="flex items-baseline gap-2">
+            <div class="card-value"><?= $current_points ?></div>
+            <div class="text-[var(--fpl-muted)] font-medium">points</div>
+          </div>
+          <div class="mt-6">
             <?php if ($rank_diff > 0): ?>
-              <div class="text-sm text-green-400 font-semibold">▲ Gained <?= $rank_diff ?> places since prev GW</div>
+              <div class="flex items-center gap-2 text-green-400 font-bold">
+                <i class="fa-solid fa-arrow-up"></i>
+                <span>Gained <?= $rank_diff ?> places since GW <?= $prev_gw ?></span>
+              </div>
             <?php elseif ($rank_diff < 0): ?>
-              <div class="text-sm text-red-500 font-semibold">▼ Lost <?= abs($rank_diff) ?> places since prev GW</div>
+              <div class="flex items-center gap-2 text-red-400 font-bold">
+                <i class="fa-solid fa-arrow-down"></i>
+                <span>Lost <?= abs($rank_diff) ?> places since GW <?= $prev_gw ?></span>
+              </div>
             <?php else: ?>
-              <div class="text-sm text-[var(--muted)] font-semibold">— No change</div>
+              <div class="flex items-center gap-2 text-[var(--fpl-muted)] font-bold">
+                <i class="fa-solid fa-minus"></i>
+                <span>No change in ranking</span>
+              </div>
             <?php endif; ?>
           </div>
         </div>
@@ -407,7 +663,7 @@ body{
 
 <script>
   $('#mobile-toggle').on('click', function(){
-    $('#mobile-menu').slideToggle(180);
+    $('#mobile-menu').slideToggle(200);
   });
 
   const labels = <?= $chart_labels_js ?>;
@@ -415,55 +671,88 @@ body{
   const ctx = document.getElementById('weeklyChart').getContext('2d');
 
   const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-  gradient.addColorStop(0, 'rgba(233,0,82,0.95)');
-  gradient.addColorStop(1, 'rgba(55,0,60,0.95)');
+  gradient.addColorStop(0, 'rgba(0, 255, 135, 0.9)');
+  gradient.addColorStop(0.5, 'rgba(28, 155, 239, 0.7)');
+  gradient.addColorStop(1, 'rgba(55, 0, 60, 0.9)');
 
   const chart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: labels,
       datasets: [{
-        label: 'Points (chart uses doubles)',
+        label: 'Points (with doubles)',
         data: data,
         backgroundColor: gradient,
-        borderRadius: 8,
-        barThickness: 22
+        borderRadius: 10,
+        borderWidth: 2,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        barThickness: 28
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      layout: { padding: { top: 6, bottom: 6 } },
+      layout: { 
+        padding: { 
+          top: 20, 
+          bottom: 20,
+          left: 10,
+          right: 10
+        } 
+      },
       scales: {
         y: {
           beginAtZero: true,
-          ticks: { color: '#dcd9e6', precision: 0 },
-          grid: { color: 'rgba(255,255,255,0.03)' }
+          ticks: { 
+            color: '#a0a0c0',
+            font: { family: 'Montserrat', weight: 600 },
+            padding: 10
+          },
+          grid: { 
+            color: 'rgba(42, 26, 94, 0.5)',
+            drawBorder: false
+          },
+          border: { display: false }
         },
         x: {
-          ticks: { color: '#dcd9e6' },
-          grid: { display: false }
+          ticks: { 
+            color: '#a0a0c0',
+            font: { family: 'Montserrat', weight: 600 },
+            padding: 10
+          },
+          grid: { display: false },
+          border: { display: false }
         }
       },
       plugins: {
-        legend: { display: false },
+        legend: { 
+          display: false 
+        },
         tooltip: {
-          backgroundColor: '#120014',
-          titleColor: '#fff',
-          bodyColor: '#fff',
-          padding: 10
+          backgroundColor: 'rgba(18, 9, 46, 0.95)',
+          titleColor: '#00ff87',
+          bodyColor: '#ffffff',
+          borderColor: '#2a1a5e',
+          borderWidth: 2,
+          padding: 12,
+          titleFont: { family: 'Montserrat', weight: 'bold' },
+          bodyFont: { family: 'Montserrat', weight: '600' },
+          cornerRadius: 8
         }
+      },
+      animation: {
+        duration: 1000,
+        easing: 'easeOutQuart'
       }
     }
   });
 
   $(function(){
-    $('.table-row').css({opacity:0, transform:'translateY(6px)'}).each(function(i){
-      $(this).delay(i*40).animate({opacity:1, transform:'translateY(0)'}, 350);
+    $('.table-row').css({opacity:0, transform:'translateY(10px)'}).each(function(i){
+      $(this).delay(i*60).animate({opacity:1, transform:'translateY(0)'}, 400);
     });
   });
 </script>
 
 </body>
 </html>
-

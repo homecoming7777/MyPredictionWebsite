@@ -71,18 +71,24 @@ LIMIT 15
 ");
 
 function render_points_badge($points, $is_double = false) {
-    if ($points === null) return '<span class="text-[var(--muted)] font-semibold">-</span>';
+    if ($points === null) return '<span class="text-[var(--fpl-muted)] font-semibold">-</span>';
 
     switch ((int)$points) {
-        case 3:  $bg='bg-green-300 text-black shadow-[0_0_10px_rgba(0,255,0,0.45)]'; break;
-        case 1:  $bg='bg-yellow-400 text-black shadow-[0_0_10px_rgba(255,255,0,0.35)]'; break;
-        default: $bg='bg-red-500 text-white shadow-[0_0_12px_rgba(255,0,0,0.4)]'; break;
+        case 3:  
+            $bg='bg-green-500/90 text-white shadow-[0_0_15px_rgba(0,255,135,0.5)] border border-green-400/50'; 
+            break;
+        case 1:  
+            $bg='bg-yellow-500/90 text-white shadow-[0_0_15px_rgba(255,215,0,0.5)] border border-yellow-400/50'; 
+            break;
+        default: 
+            $bg='bg-red-500/90 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)] border border-red-400/50'; 
+            break;
     }
 
     $val = $is_double ? $points*2 : $points;
 
     return "
-    <span class='inline-flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-extrabold uppercase tracking-wide $bg'>
+    <span class='inline-flex items-center justify-center px-3 py-1.5 rounded-full font-bold text-sm $bg'>
         ".($is_double ? "⭐ $val" : $val)."
     </span>";
 }
@@ -92,145 +98,536 @@ function render_points_badge($points, $is_double = false) {
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>My Predictions</title>
+<title>My Predictions | Fantasy Premier League</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.0/css/all.min.css" />
 
 <style>
 :root {
-  --pl-dark:#050507;
-  --pl-purple:#2b0030;
-  --pl-pink:#e90052;
-  --card:#110012;
-  --muted:#c8bcd3;
+  --fpl-blue: #37003c;
+  --fpl-green: #00ff87;
+  --fpl-light-blue: #1c9bef;
+  --fpl-white: #ffffff;
+  --fpl-dark-bg: #0a0222;
+  --fpl-card-bg: #12092e;
+  --fpl-border: #2a1a5e;
+  --fpl-muted: #a0a0c0;
 }
-body { background: var(--pl-dark); color: white; font-weight: 500; }
-.bg-card { background: var(--card); border: 1px solid rgba(233,0,82,0.15); box-shadow: 0 0 15px rgba(233,0,82,0.15); }
-.table-strong { border: 2px solid rgba(233,0,82,0.25); box-shadow: 0 0 18px rgba(233,0,82,0.2); }
-thead { letter-spacing: 1px; font-weight: 800; text-transform: uppercase; background: linear-gradient(90deg, var(--pl-purple), #4e0058); }
-.points-box { background: linear-gradient(90deg, var(--pl-pink), #ff1a74); box-shadow: 0 0 15px rgba(233,0,82,0.45); }
+
+body {
+  background: 
+    linear-gradient(135deg, #0a0222 0%, #1a0b3a 30%, #2a1a5e 100%),
+    radial-gradient(circle at 20% 80%, rgba(0, 255, 135, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 80% 20%, rgba(28, 155, 239, 0.06) 0%, transparent 40%);
+  color: #ffffff;
+  font-family: 'Montserrat', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.card {
+  background: linear-gradient(145deg, rgba(18, 9, 46, 0.95) 0%, rgba(42, 26, 94, 0.8) 100%);
+  border: 2px solid var(--fpl-border);
+  border-radius: 16px;
+  box-shadow: 
+    0 10px 30px rgba(0, 0, 0, 0.4),
+    0 0 20px rgba(0, 255, 135, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--fpl-green), var(--fpl-light-blue));
+  border-radius: 16px 16px 0 0;
+}
+
+.nav-gradient {
+  background: linear-gradient(90deg, var(--fpl-blue) 0%, #2a0d5e 100%);
+  border-bottom: 3px solid var(--fpl-green);
+}
+
+.points-box {
+  background: linear-gradient(135deg, var(--fpl-green) 0%, var(--fpl-light-blue) 100%);
+  box-shadow: 0 0 25px rgba(0, 255, 135, 0.4);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  color: #000;
+  font-weight: 900;
+}
+
+.double-timer {
+  background: linear-gradient(135deg, #ffd700 0%, #ffb400 100%);
+  border: 2px solid #ffd700;
+  color: #000;
+  font-weight: 800;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+}
+
+input[type="radio"] {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--fpl-border);
+  border-radius: 50%;
+  background: var(--fpl-card-bg);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+input[type="radio"]:checked {
+  background: var(--fpl-green);
+  border-color: var(--fpl-green);
+  box-shadow: 0 0 15px rgba(0, 255, 135, 0.6);
+}
+
+input[type="radio"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #000;
+  font-weight: 900;
+  font-size: 12px;
+}
+
+input[type="radio"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.table-container {
+  border: 2px solid var(--fpl-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  margin: 0 -0.5rem;
+  padding: 0 0.5rem;
+}
+
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 0.5rem;
+}
+
+.table-wrapper table {
+  width: 100%;
+  min-width: 800px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table-wrapper thead {
+  background: linear-gradient(90deg, var(--fpl-blue) 0%, #2a1a5e 100%);
+}
+
+.table-wrapper th {
+  color: var(--fpl-green);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  border-bottom: 2px solid var(--fpl-border);
+}
+
+.table-wrapper td {
+  padding: 0.75rem 0.5rem;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(42, 26, 94, 0.3);
+  font-size: 0.875rem;
+}
+
+.table-wrapper tbody tr:hover {
+  background: rgba(0, 255, 135, 0.05);
+}
+
+.compact-cell {
+  white-space: nowrap;
+  padding: 0.5rem !important;
+}
+
+.match-cell {
+  min-width: 150px;
+}
+
+.date-cell {
+  min-width: 120px;
+}
+
+.prediction-cell, .result-cell {
+  min-width: 100px;
+}
+
+.points-cell {
+  min-width: 90px;
+}
+
+.double-cell {
+  min-width: 80px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(18, 9, 46, 0.5);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, var(--fpl-green) 0%, var(--fpl-light-blue) 100%);
+  border-radius: 5px;
+}
+
+@media (max-width: 640px) {
+  .table-wrapper th,
+  .table-wrapper td {
+    font-size: 0.75rem;
+    padding: 0.5rem 0.25rem !important;
+  }
+  
+  .table-wrapper table {
+    min-width: 700px;
+  }
+  
+  h1 {
+    font-size: 1.5rem !important;
+  }
+  
+  .points-box, .double-timer {
+    font-size: 0.8rem !important;
+    padding: 0.5rem !important;
+  }
+}
 </style>
 </head>
 
-<body class="p-6">
+<body class="p-0">
 
-<nav class="w-full bg-black/30 backdrop-blur-md text-white py-4 px-6 fixed top-0 left-0 flex justify-between items-center z-50 border-b border-white/10">
+<nav class="w-full nav-gradient text-white py-4 px-4 mb-20 fixed top-0 left-0 flex justify-between items-center z-50 shadow-2xl">
     <div class="flex items-center gap-2">
-        <img src="/PL_img/PL_LOGO1.png" class="h-10 w-10" alt="">
-        <h2 class="text-lg font-bold">Premier League</h2>
+        <div class="relative">
+            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--fpl-green)] to-[var(--fpl-light-blue)] flex items-center justify-center shadow-lg">
+                <span class="text-black font-extrabold text-base">FPL</span>
+            </div>
+            <div class="absolute -top-1 -right-1 w-4 h-4 bg-[var(--fpl-green)] rounded-full border-2 border-[var(--fpl-blue)]"></div>
+        </div>
+        <h2 class="text-base font-black">score-exact Premier <span class="text-[var(--fpl-green)]">League</span></h2>
     </div>
-    <button onclick="toggleMenu()" class="md:hidden text-white focus:outline-none">
+    
+    <button onclick="toggleMenu()" class="lg:hidden text-white hover:text-[var(--fpl-green)] transition-colors">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                 d="M4 6h16M4 12h16M4 18h16" />
         </svg>
     </button>
-    <ul class="hidden md:flex gap-6 text-sm font-semibold">
-        <li><a href="dashboard.php" class="hover:text-[var(--pl-pink)]">Dashboard</a></li>
-        <li><a href="predictions.php" class="hover:text-[var(--pl-pink)]">Predictions</a></li>
-        <li><a href="leaderboard.php" class="hover:text-[var(--pl-pink)]">Leaderboard</a></li>
-        <li><a href="my_predictions.php" class="text-[var(--pl-pink)] font-bold">My Predictions</a></li>
+    
+    <ul class="hidden lg:flex gap-4 text-sm font-semibold">
+        <li><a href="dashboard.php" class="hover:text-[var(--fpl-green)] transition-colors">Dashboard</a></li>
+        <li><a href="predictions.php" class="hover:text-[var(--fpl-green)] transition-colors">Predictions</a></li>
+        <li><a href="leaderboard.php" class="hover:text-[var(--fpl-green)] transition-colors">Leaderboard</a></li>
+        <li><a href="my_predictions.php" class="text-[var(--fpl-green)] font-bold border-b-2 border-[var(--fpl-green)]">My Predictions</a></li>
     </ul>
 </nav>
 
-<div id="mobileMenu" class="hidden flex-col gap-4 bg-black/40 backdrop-blur-lg text-white py-5 px-6 fixed top-16 left-0 w-full z-40 border-b border-white/10 md:hidden">
-    <a href="dashboard.php" class="hover:text-[var(--pl-pink)]">Dashboard</a>
-    <a href="predictions.php" class="hover:text-[var(--pl-pink)]">Predictions</a>
-    <a href="leaderboard.php" class="hover:text-[var(--pl-pink)]">Leaderboard</a>
-    <a href="my_predictions.php" class="text-[var(--pl-pink)] font-bold">My Predictions</a>
+<div id="mobileMenu" class="hidden flex-col gap-4 text-white py-6 px-6 fixed top-16 left-0 w-full z-40 nav-gradient shadow-xl">
+    <a href="dashboard.php" class="hover:text-[var(--fpl-green)] transition-colors font-semibold py-2">Dashboard</a><br><br>
+    <a href="predictions.php" class="hover:text-[var(--fpl-green)] transition-colors font-semibold py-2">Predictions</a><br><br>
+    <a href="leaderboard.php" class="hover:text-[var(--fpl-green)] transition-colors font-semibold py-2">Leaderboard</a><br><br>
+    <a href="my_predictions.php" class="text-[var(--fpl-green)] font-bold py-2">My Predictions</a><br><br>
 </div>
 
-<script>
-function toggleMenu() { document.getElementById("mobileMenu").classList.toggle("hidden"); }
-</script>
+<div class="max-w-6xl lg:pt-40 mx-auto p-3 md:p-6 pt-44 animate-fade-in">
 
-<div class="max-w-5xl mx-auto mt-24">
-  <div class="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
-    <h1 class="text-4xl font-extrabold text-[var(--pl-pink)] drop-shadow-[0_0_8px_rgba(233,0,82,0.55)]">My Predictions</h1>
-    <div class="flex items-center gap-4">
-      <div class="points-box px-5 py-3 rounded-lg font-extrabold text-lg text-black">Points: <?= $total_points ?></div>
-      <form method="GET">
-        <select name="gameweek" onchange="this.form.submit()" class="bg-card px-3 py-2 rounded-lg border border-[var(--pl-pink)]/40 shadow-md">
+  <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-3">
+    <div class="text-center md:text-left">
+      <h1 class="text-2xl md:text-4xl font-black bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] bg-clip-text text-transparent drop-shadow-lg">
+        My Predictions
+      </h1>
+      <p class="text-[var(--fpl-muted)] font-medium mt-1 text-sm">
+        <i class="fa-solid fa-calendar-week mr-1"></i>Gameweek <?= $selected_gw ?> • Season 2023/24
+      </p>
+    </div>
+    
+    <div class="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+      <div id="doubleTimer" class="double-timer px-3 py-2 rounded-lg font-extrabold text-xs sm:text-sm flex items-center justify-center gap-1 w-full sm:w-auto">
+        <i class="fa-solid fa-clock text-xs"></i>
+        <span class="hidden sm:inline">Double: </span><span id="countdown" class="font-mono">00:00:00</span>
+      </div>
+      
+      <div class="points-box px-3 py-2 rounded-lg font-black text-sm flex items-center justify-center gap-1 w-full sm:w-auto">
+        <i class="fa-solid fa-star text-xs"></i>
+        <span>Total: <?= $total_points ?> pts</span>
+      </div>
+      
+      <form method="GET" class="relative w-full sm:w-auto">
+        <select name="gameweek" onchange="this.form.submit()" 
+                class="card px-3 py-2 rounded-lg font-bold text-white cursor-pointer appearance-none pr-8 w-full hover:border-[var(--fpl-green)] transition-colors text-sm">
+          <option value="" disabled>Select Gameweek</option>
           <?php foreach ($gameweeks as $gw): ?>
-            <option value="<?= $gw ?>" <?= ($gw == $selected_gw) ? 'selected' : '' ?>>Gameweek <?= $gw ?></option>
+            <option value="<?= $gw ?>" <?= ($gw == $selected_gw) ? 'selected' : '' ?>>
+              GW <?= $gw ?>
+            </option>
           <?php endforeach; ?>
         </select>
+        <div class="absolute right-2 top-1/2 transform -translate-y-1/2 pointer-events-none">
+          <i class="fa-solid fa-chevron-down text-[var(--fpl-green)] text-xs"></i>
+        </div>
       </form>
     </div>
   </div>
 
-  <form method="POST">
+  <form method="POST" class="mb-8">
     <input type="hidden" name="gameweek" value="<?= $selected_gw ?>">
-    <div class="overflow-x-auto rounded-lg table-strong mb-4">
-      <table class="min-w-full text-center bg-card">
-        <thead>
-          <tr>
-            <th class="p-3">Match</th>
-            <th class="p-3">Date</th>
-            <th class="p-3">Prediction</th>
-            <th class="p-3">Result</th>
-            <th class="p-3">Points</th>
-            <th class="p-3">Double</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php if ($predictions->num_rows === 0): ?>
-            <tr><td colspan="6" class="p-6 text-[var(--muted)]">No predictions this gameweek.</td></tr>
-          <?php else: ?>
-            <?php while ($row = $predictions->fetch_assoc()): ?>
-              <?php $is_double = ($row['match_id'] == $current_double); ?>
-              <tr class="border-b border-[var(--pl-purple)]/40 hover:bg-[var(--pl-purple)]/20 transition">
-                <td class="p-3 font-semibold"><?= $row['home_team'] ?> <span class="text-[var(--pl-pink)] font-bold">vs</span> <?= $row['away_team'] ?></td>
-                <td class="p-3 text-[var(--muted)]"><?= date("Y-m-d H:i", strtotime($row['match_date'])) ?></td>
-                <td class="p-3"><?= $row['predicted_home'] ?> - <?= $row['predicted_away'] ?></td>
-                <td class="p-3"><?= is_numeric($row['home_score']) ? "{$row['home_score']} - {$row['away_score']}" : "<span class='text-[var(--muted)]'>Not played</span>" ?></td>
-                <td class="p-3"><?= render_points_badge($row['points'], $is_double) ?></td>
-                <td class="p-3 text-xl font-bold">
-                  <?php if($is_double): ?>
-                    ⭐
-                  <?php else: ?>
-                    <input type="radio" name="double_match" value="<?= $row['match_id'] ?>" <?= $current_double ? 'disabled' : '' ?>>
-                  <?php endif; ?>
+    
+    <div class="mb-4">
+      <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
+        <div>
+          <h2 class="text-lg md:text-xl font-bold text-white">Your Predictions</h2>
+          <p class="text-[var(--fpl-muted)] font-medium text-xs md:text-sm">
+            <?php if($current_double): ?>
+              <span class="text-[var(--fpl-green)] font-bold">
+                <i class="fa-solid fa-star mr-1"></i>Double points selected
+              </span>
+            <?php else: ?>
+              Select one match for double points
+            <?php endif; ?>
+          </p>
+        </div>
+        <div class="text-[var(--fpl-muted)] text-xs font-semibold">
+          <i class="fa-solid fa-info-circle mr-1"></i>Points: 3=Correct, 1=Outcome, 0=Wrong
+        </div>
+      </div>
+    </div>
+
+    <div class="table-container mb-4">
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th class="match-cell">Match Details</th>
+              <th class="date-cell">Date & Time</th>
+              <th class="prediction-cell">Your Prediction</th>
+              <th class="result-cell">Final Result</th>
+              <th class="points-cell">Points</th>
+              <th class="double-cell">Double</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php if ($predictions->num_rows === 0): ?>
+              <tr>
+                <td colspan="6" class="py-8 text-center">
+                  <div class="text-[var(--fpl-muted)] font-medium">
+                    <i class="fa-solid fa-inbox fa-lg mb-2 block"></i>
+                    No predictions for Gameweek <?= $selected_gw ?>
+                  </div>
                 </td>
               </tr>
-            <?php endwhile; ?>
-          <?php endif; ?>
-        </tbody>
-      </table>
+            <?php else: ?>
+              <?php while ($row = $predictions->fetch_assoc()): ?>
+                <?php $is_double = ($row['match_id'] == $current_double); ?>
+                <tr>
+                  <td class="match-cell">
+                    <div class="font-bold text-white text-sm">
+                      <?= $row['home_team'] ?> <span class="text-[var(--fpl-green)] mx-1">vs</span> <?= $row['away_team'] ?>
+                    </div>
+                  </td>
+                  <td class="date-cell">
+                    <div class="text-[var(--fpl-muted)] text-xs">
+                      <?= date("M j", strtotime($row['match_date'])) ?>
+                    </div>
+                    <div class="text-[var(--fpl-muted)] text-xs">
+                      <?= date("H:i", strtotime($row['match_date'])) ?>
+                    </div>
+                  </td>
+                  <td class="prediction-cell">
+                    <span class="inline-block px-2 py-1 rounded-full bg-[var(--fpl-blue)]/30 border border-[var(--fpl-border)] font-bold text-white text-xs">
+                      <?= $row['predicted_home'] ?> - <?= $row['predicted_away'] ?>
+                    </span>
+                  </td>
+                  <td class="result-cell">
+                    <?php if (is_numeric($row['home_score'])): ?>
+                      <span class="inline-block px-2 py-1 rounded-full bg-[var(--fpl-card-bg)] border border-[var(--fpl-border)] font-bold text-white text-xs">
+                        <?= $row['home_score'] ?> - <?= $row['away_score'] ?>
+                      </span>
+                    <?php else: ?>
+                      <span class="text-[var(--fpl-muted)] text-xs">
+                        <i class="fa-solid fa-clock mr-1"></i>Not played
+                      </span>
+                    <?php endif; ?>
+                  </td>
+                  <td class="points-cell">
+                    <?= render_points_badge($row['points'], $is_double) ?>
+                  </td>
+                  <td class="double-cell">
+                    <?php if($is_double): ?>
+                      <span class="inline-flex items-center gap-1 text-[var(--fpl-green)] font-bold text-xs">
+                        <i class="fa-solid fa-star"></i> 
+                        <span class="hidden sm:inline">DOUBLE</span>
+                      </span>
+                    <?php else: ?>
+                      <label class="inline-flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name="double_match" value="<?= $row['match_id'] ?>" 
+                               <?= $current_double ? 'disabled' : '' ?>
+                               class="scale-90">
+                        <span class="text-[var(--fpl-muted)] text-xs font-semibold hidden sm:inline">Select</span>
+                      </label>
+                    <?php endif; ?>
+                  </td>
+                </tr>
+              <?php endwhile; ?>
+            <?php endif; ?>
+          </tbody>
+        </table>
+      </div>
     </div>
-    <?php if(!$current_double): ?>
-    <div class="flex justify-end mb-10">
-      <button type="submit" class="px-6 py-2 bg-yellow-400 font-bold text-black rounded-lg hover:bg-yellow-500 transition">
-        Save Double
+    
+    <?php if(!$current_double && $predictions->num_rows > 0): ?>
+    <div class="flex justify-center md:justify-end mt-4">
+      <button type="submit" 
+              class="px-4 py-2 bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] font-bold text-black rounded-lg hover:opacity-90 transition-all shadow-lg w-full sm:w-auto text-sm">
+        <i class="fa-solid fa-save mr-1"></i> Save Double Points Selection
       </button>
     </div>
     <?php endif; ?>
   </form>
 
-  
-  <div class="overflow-x-auto rounded-lg table-strong mb-10">
-    <table class="min-w-full text-center bg-card">
-      <thead>
-        <tr>
-          <th class="p-3">Rank</th>
-          <th class="p-3">User</th>
-          <th class="p-3">Points</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php $rank=1; while ($r=$leaderboard->fetch_assoc()): ?>
-        <tr class="border-b border-[var(--pl-purple)]/40 hover:bg-[var(--pl-purple)]/20 transition">
-          <td class="p-3"><?= $rank++ ?></td>
-          <td class="p-3"><!--
-            <a href="other_user.php?user_id=<?= $r['id'] ?>&gameweek=<?= $selected_gw ?>" 
-               class="text-[var(--pl-pink)] hover:underline">--><?= htmlspecialchars($r['username']) ?> <!--</a>-->
-          </td>
-          <td class="p-3 font-bold text-green-400"><?= $r['gw_points'] ?></td>
-        </tr>
-        <?php endwhile; ?>
-      </tbody>
-    </table>
+  <div class="mb-8">
+    <div class="flex flex-col md:flex-row md:items-center justify-between mb-3 gap-2">
+      <div>
+        <h2 class="text-lg md:text-xl font-bold text-white">Gameweek <?= $selected_gw ?> Leaderboard</h2>
+        <p class="text-[var(--fpl-muted)] font-medium text-xs md:text-sm">Top 15 managers this gameweek</p>
+      </div>
+      <div class="text-xs text-[var(--fpl-muted)] font-semibold">
+        <i class="fa-solid fa-trophy mr-1 text-[var(--fpl-green)]"></i>Double points included
+      </div>
+    </div>
+    
+    <div class="table-container">
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th class="w-16">Rank</th>
+              <th>Manager</th>
+              <th class="w-24">Points</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php $rank=1; while ($r=$leaderboard->fetch_assoc()): ?>
+            <tr>
+              <td>
+                <div class="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-sm
+                  <?php if ($rank == 1): ?> rank-1
+                  <?php elseif ($rank == 2): ?> rank-2
+                  <?php elseif ($rank == 3): ?> rank-3
+                  <?php else: ?> bg-[var(--fpl-card-bg)] border border-[var(--fpl-border)] text-[var(--fpl-muted)]
+                  <?php endif; ?>">
+                  <?= $rank ?>
+                </div>
+              </td>
+              <td class="text-left"><?= htmlspecialchars($r['username']) ?>
+                <a href="other_user.php?user_id=<?= $r['id'] ?>&gameweek=<?= $selected_gw ?>" 
+                   class="font-semibold text-white hover:text-[var(--fpl-green)] transition-colors text-sm">
+                </a>
+              </td>
+              <td>
+                <span class="inline-flex items-center gap-1 font-bold text-sm bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] bg-clip-text text-transparent">
+                  <i class="fa-solid fa-star text-xs"></i>
+                  <?= $r['gw_points'] ?>
+                </span>
+              </td>
+            </tr>
+            <?php $rank++; endwhile; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
 </div>
+
+<script>
+function toggleMenu() { 
+    document.getElementById("mobileMenu").classList.toggle("hidden"); 
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    const DEADLINE = new Date("2025-12-20T18:00:00"); 
+
+    const countdown = document.getElementById("countdown");
+    const timerBox = document.getElementById("doubleTimer");
+    const radios = document.querySelectorAll('input[name="double_match"]');
+    const saveBtn = document.querySelector('button[type="submit"]');
+
+    function closeDouble() {
+        radios.forEach(radio => {
+            const td = radio.closest("label");
+            if (td) {
+                td.innerHTML = `<span class="text-gray-400 text-xs font-semibold">⛔ Closed</span>`;
+            }
+        });
+
+        if (saveBtn) saveBtn.style.display = "none";
+
+        timerBox.innerHTML = '<i class="fa-solid fa-lock"></i> Closed';
+        timerBox.classList.remove("double-timer");
+        timerBox.classList.add("bg-gray-600", "text-gray-300", "border-gray-500");
+    }
+
+    function updateTimer() {
+        const now = new Date();
+        const diff = DEADLINE - now;
+
+        if (diff <= 0) {
+            closeDouble();
+            clearInterval(interval);
+            return;
+        }
+
+        const h = Math.floor(diff / (1000 * 60 * 60));
+        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const s = Math.floor((diff % (1000 * 60)) / 1000);
+
+        countdown.textContent =
+            h.toString().padStart(2, "0") + ":" +
+            m.toString().padStart(2, "0") + ":" +
+            s.toString().padStart(2, "0");
+            
+        if (h === 0 && m < 60) {
+            timerBox.classList.add("animate-pulse");
+        }
+    }
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+});
+</script>
+
 </body>
 </html>
