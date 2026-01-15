@@ -37,6 +37,14 @@ $query = $conn->prepare("
     WHERE p.user_id = ? AND m.gameweek = ?
     ORDER BY m.match_date ASC
 ");
+
+$triple_match_id = null;
+$tm = $conn->prepare("SELECT match_id FROM triple_match WHERE user_id=?");
+$tm->bind_param("i", $user_id);
+$tm->execute();
+$triple_match_id = $tm->get_result()->fetch_assoc()['match_id'] ?? null;
+
+
 $query->bind_param("ii", $user_id, $selected_gw);
 $query->execute();
 $predictions = $query->get_result();
@@ -69,6 +77,25 @@ GROUP BY u.id
 ORDER BY gw_points DESC, u.username ASC
 LIMIT 15
 ");
+
+$card_status = [
+  'double_all_used' => 0,
+  'triple_match_used' => 0,
+  'best_gw_used' => 0
+];
+
+$card_q = $conn->prepare("
+  SELECT double_all_used, triple_match_used, best_gw_used
+  FROM user_cards WHERE user_id = ?
+");
+$card_q->bind_param("i", $user_id);
+$card_q->execute();
+
+$res = $card_q->get_result();
+if ($res->num_rows) {
+    $card_status = $res->fetch_assoc();
+}
+
 
 function render_points_badge($points, $is_double = false) {
     if ($points === null) return '<span class="text-[var(--fpl-muted)] font-semibold">-</span>';
@@ -333,7 +360,7 @@ input[type="radio"]:disabled {
     <div class="flex items-center gap-2">
         <div class="relative">
             <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--fpl-green)] to-[var(--fpl-light-blue)] flex items-center justify-center shadow-lg">
-                <span class="text-black font-extrabold text-base">FPL</span>
+                <span class="text-black font-extrabold text-base">us</span>
             </div>
             <div class="absolute -top-1 -right-1 w-4 h-4 bg-[var(--fpl-green)] rounded-full border-2 border-[var(--fpl-blue)]"></div>
         </div>
@@ -361,9 +388,64 @@ input[type="radio"]:disabled {
     <a href="leaderboard.php" class="hover:text-[var(--fpl-green)] transition-colors font-semibold py-2">Leaderboard</a><br><br>
     <a href="my_predictions.php" class="text-[var(--fpl-green)] font-bold py-2">My Predictions</a><br><br>
 </div>
+    
 
 <div class="max-w-6xl lg:pt-40 mx-auto p-3 md:p-6 pt-44 animate-fade-in">
 
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+
+  <!-- DOUBLE ALL -->
+  <div class="card p-5 text-center <?= $card_status['double_all_used'] ? 'opacity-50' : '' ?>">
+    <h3 class="font-black text-lg mb-2">🔥 Double All Points</h3>
+    <p class="text-sm text-[var(--fpl-muted)] mb-3">Once ever</p>
+      <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship makes all your match points doubled</p>
+
+    <?php if ($card_status['double_all_used']): ?>
+      <div class="font-black text-green-400">USED</div>
+    <?php else: ?>
+      <button onclick="useCard('double_all')"
+        class="w-full py-2 rounded-lg font-bold bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] text-black">
+        Activate
+      </button>
+    <?php endif; ?>
+  </div>
+
+  <!-- TRIPLE MATCH -->
+  <div class="card p-5 text-center <?= $card_status['triple_match_used'] ? 'opacity-50' : '' ?>">
+    <h3 class="font-black text-lg mb-2">⭐⭐⭐ Triple One Match</h3>
+    <p class="text-sm text-[var(--fpl-muted)] mb-3">Once ever</p>
+         <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship make the match you select tripled</p>
+
+    <?php if ($card_status['triple_match_used']): ?>
+      <div class="font-black text-green-400">USED</div>
+    <?php else: ?>
+      <p class="text-xs text-yellow-400 font-semibold">
+        Select a match below
+      </p>
+    <?php endif; ?>
+  </div>
+
+  <!-- BEST GW -->
+  <div class="card p-5 text-center <?= $card_status['best_gw_used'] ? 'opacity-50' : '' ?>">
+    <h3 class="font-black text-lg mb-2">🛡 Best of Two GWs</h3>
+    <p class="text-sm text-[var(--fpl-muted)] mb-3">Once ever</p>
+         <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship gives you the highest points between the last and the current gameweek</p>
+
+    <?php if ($card_status['best_gw_used']): ?>
+      <div class="font-black text-green-400">USED</div>
+    <?php else: ?>
+      <button onclick="useCard('best_gw')"
+        class="w-full py-2 rounded-lg font-bold bg-gradient-to-r from-purple-400 to-purple-600 text-black">
+        Activate
+      </button>
+    <?php endif; ?>
+  </div>
+
+</div>
+
+</div>
+
+    
   <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-3">
     <div class="text-center md:text-left">
       <h1 class="text-2xl md:text-4xl font-black bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] bg-clip-text text-transparent drop-shadow-lg">
@@ -390,7 +472,7 @@ input[type="radio"]:disabled {
                 class="card px-3 py-2 rounded-lg font-bold text-white cursor-pointer appearance-none pr-8 w-full hover:border-[var(--fpl-green)] transition-colors text-sm">
           <option value="" disabled>Select Gameweek</option>
           <?php foreach ($gameweeks as $gw): ?>
-            <option value="<?= $gw ?>" <?= ($gw == $selected_gw) ? 'selected' : '' ?>>
+            <option class="text-black" value="<?= $gw ?>" <?= ($gw == $selected_gw) ? 'selected' : '' ?>>
               GW <?= $gw ?>
             </option>
           <?php endforeach; ?>
@@ -436,6 +518,7 @@ input[type="radio"]:disabled {
               <th class="result-cell">Final Result</th>
               <th class="points-cell">Points</th>
               <th class="double-cell">Double</th>
+              <th class="double-cell">Triple</th>
             </tr>
           </thead>
           <tbody>
@@ -452,7 +535,6 @@ input[type="radio"]:disabled {
               <?php while ($row = $predictions->fetch_assoc()): ?>
                 <?php $is_double = ($row['match_id'] == $current_double); ?>
                 <tr>
-                  <td class="match-cell">
                     <div class="font-bold text-white text-sm">
                       <?= $row['home_team'] ?> <span class="text-[var(--fpl-green)] mx-1">vs</span> <?= $row['away_team'] ?>
                     </div>
@@ -499,6 +581,27 @@ input[type="radio"]:disabled {
                       </label>
                     <?php endif; ?>
                   </td>
+                    <td class="double-cell">
+
+  <?php if (!$card_status['triple_match_used']): ?>
+                        <?php if ($row['match_id'] == $triple_match_id): ?>
+  <span class="text-purple-400 font-black text-xs ml-2">
+    ⭐⭐⭐ TRIPLE
+  </span>
+<?php endif; ?>
+    <button
+      onclick="useTriple(<?= $row['match_id'] ?>)"
+      class="px-2 py-1 text-xs font-black rounded
+             bg-purple-600 hover:bg-purple-700 text-white">
+      ⭐ TRIPLE
+    </button>
+
+  <?php else: ?>
+    <span class="text-green-400 font-bold text-xs">USED</span>
+  <?php endif; ?>
+
+</td>
+
                 </tr>
               <?php endwhile; ?>
             <?php endif; ?>
@@ -578,7 +681,7 @@ function toggleMenu() {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    const DEADLINE = new Date("2025-12-20T18:00:00"); 
+    const DEADLINE = new Date("2026-01-17T13:00:00"); 
 
     const countdown = document.getElementById("countdown");
     const timerBox = document.getElementById("doubleTimer");
@@ -627,7 +730,39 @@ document.addEventListener("DOMContentLoaded", function () {
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
 });
+    
+    function useCard(card){
+  fetch('activate_card.php',{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'card='+card+'&gameweek=<?= $selected_gw ?>'
+  }).then(res => res.text())
+    .then(() => location.reload());
+}
+    
+function useTriple(matchId) {
+
+  if (!confirm('Use TRIPLE on this match? (Only once ever)')) return;
+
+  fetch('activate_card.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'card=triple_match&match_id=' + matchId + '&gameweek=<?= $selected_gw ?>'
+  })
+  .then(r => r.text())
+  .then(res => {
+    if (res === 'USED') {
+      alert('You already used this card');
+    } else if (res === 'OK') {
+      location.reload();
+    } else {
+      alert('Error: ' + res);
+    }
+  });
+}
 </script>
+
+    
 
 </body>
 </html>

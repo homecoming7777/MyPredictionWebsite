@@ -1,5 +1,4 @@
 <?php 
-// dashboard.php — Redesigned with Fantasy Premier League Theme
 session_start();
 include 'connect.php';
 
@@ -9,9 +8,6 @@ if (!isset($_SESSION['user_id'])) {
 }
 $uid = (int)$_SESSION['user_id'];
 
-/* -------------------------
-   Helper: fetch one value
---------------------------*/
 function fetch_one($conn, $sql) {
     $r = $conn->query($sql);
     if (!$r) return null;
@@ -19,27 +15,21 @@ function fetch_one($conn, $sql) {
     return $row ? $row[0] : null;
 }
 
-/* -------------------------
-   User info
---------------------------*/
+
 $stmt = $conn->prepare("SELECT username, favorite_team, avatar FROM users WHERE id = ? LIMIT 1");
 $stmt->bind_param("i", $uid);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc() ?: ['username'=>'User','favorite_team'=>'—','avatar'=>'/PL_img/default-avatar.png'];
 $stmt->close();
 
-/* -----------------------------------------------------
-   UPDATED SECTION: Gameweeks auto-detected
-------------------------------------------------------*/
+
 $first_gw = (int) fetch_one($conn, "SELECT MIN(gameweek) FROM matches WHERE home_score IS NOT NULL OR away_score IS NOT NULL");
 $last_gw  = (int) fetch_one($conn, "SELECT MAX(gameweek) FROM matches");
 
 $current_gw = $last_gw;
 $prev_gw = max($first_gw, $current_gw - 1);
 
-/* -------------------------
-   Weekly points for Chart (with doubles)
---------------------------*/
+
 $gw_sql = "
   SELECT 
     m.gameweek AS gw,
@@ -69,16 +59,10 @@ for ($g = $first_gw; $g <= $last_gw; $g++) {
 $chart_labels_js = json_encode($gw_labels);
 $chart_data_js = json_encode($gw_data);
 
-/* -------------------------
-   Current total points
---------------------------*/
 $current_points = (int) fetch_one($conn, "
     SELECT COALESCE(SUM(COALESCE(points,0)),0) FROM score_exact WHERE user_id = $uid
 ");
 
-/* -------------------------
-   Prev & current_by_gw
---------------------------*/
 $prev_points = 0;
 if ($prev_gw >= $first_gw) {
     $prev_points = (int) fetch_one($conn, "
@@ -95,9 +79,6 @@ $cur_points_by_gw = (int) fetch_one($conn, "
     WHERE se.user_id = $uid AND m.gameweek <= $current_gw
 ");
 
-/* -------------------------
-   Leaderboard
---------------------------*/
 $leader_sql = "
   SELECT u.id, u.username, COALESCE(SUM(COALESCE(se.points,0)),0) AS total_points
   FROM users u
@@ -124,9 +105,6 @@ foreach ($leaders as $l) {
     if ((int)$l['id'] === $uid) { $current_rank = $l['pos']; break; }
 }
 
-/* -------------------------
-   Prev rank
---------------------------*/
 if ($prev_gw >= $first_gw) {
     $prev_rank = (int) fetch_one($conn, "
       SELECT COUNT(*)+1 FROM (
@@ -148,16 +126,12 @@ if ($prev_gw >= $first_gw) {
 
 $rank_diff = $prev_rank - $current_rank;
 
-/* -------------------------
-   Badge
---------------------------*/
+
 $badge = 'bronze';
 if ($current_rank <= 3) $badge = 'gold';
 elseif ($current_rank <= 10) $badge = 'silver';
 
-/* -------------------------
-   Recent matches
---------------------------*/
+
 $recent_sql = "
   SELECT se.match_id, se.predicted_home, se.predicted_away, se.points AS db_points,
          m.home_team, m.away_team, m.home_score, m.away_score, m.match_date
@@ -217,7 +191,6 @@ body {
   min-height: 100vh;
 }
 
-/* FPL-inspired card */
 .card {
   background: linear-gradient(145deg, rgba(18, 9, 46, 0.95) 0%, rgba(42, 26, 94, 0.8) 100%);
   border: 2px solid var(--fpl-border);
@@ -266,13 +239,11 @@ body {
   transition: all 0.2s ease;
 }
 
-/* Navigation */
 .nav-gradient {
   background: linear-gradient(90deg, var(--fpl-blue) 0%, #2a0d5e 100%);
   border-bottom: 3px solid var(--fpl-green);
 }
 
-/* Avatar styling */
 .avatar-ring {
   border: 3px solid transparent;
   background: linear-gradient(135deg, var(--fpl-green), var(--fpl-light-blue)) border-box;
@@ -285,13 +256,11 @@ body {
   box-shadow: 0 0 30px rgba(0, 255, 135, 0.4);
 }
 
-/* Badge styling */
 .badge-glow {
   box-shadow: 0 0 25px rgba(0, 255, 135, 0.5);
   background: linear-gradient(135deg, var(--fpl-green), var(--fpl-light-blue));
 }
 
-/* Rank badges */
 .rank-1 { 
   background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
   color: #000;
@@ -308,7 +277,6 @@ body {
   font-weight: 800;
 }
 
-/* Table styling */
 table {
   border-collapse: separate;
   border-spacing: 0;
@@ -327,7 +295,6 @@ td {
   border-bottom: 1px solid rgba(42, 26, 94, 0.5);
 }
 
-/* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
@@ -337,7 +304,6 @@ td {
   animation: fadeIn 0.6s ease-out;
 }
 
-/* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -352,7 +318,6 @@ td {
   border-radius: 5px;
 }
 
-/* Typography */
 .h1 { 
   font-size: 2rem; 
   font-weight: 900;
@@ -386,7 +351,7 @@ td {
   <div class="flex items-center gap-4">
     <div class="relative">
       <div class="w-14 h-14 rounded-full bg-gradient-to-br from-[var(--fpl-green)] to-[var(--fpl-light-blue)] flex items-center justify-center shadow-lg">
-        <span class="text-black font-extrabold text-xl">FPL</span>
+        <span class="text-black font-extrabold text-xl">us</span>
       </div>
       <div class="absolute -top-1 -right-1 w-6 h-6 bg-[var(--fpl-green)] rounded-full border-2 border-[var(--fpl-blue)]"></div>
     </div>
@@ -431,6 +396,95 @@ td {
 
 <main class="max-w-7xl mx-auto p-6 pt-32 space-y-8 animate-fade-in">
 
+<div class="card rounded-2xl p-8 mt-8">
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <div class="h2">Latest Updates & Features</div>
+      <div class="text-[var(--fpl-muted)] font-medium mt-2">Discover what's new in our fantasy platform</div>
+    </div>
+    <div class="px-4 py-2 rounded-full bg-gradient-to-r from-[var(--fpl-green)]/20 to-[var(--fpl-light-blue)]/20 border border-[var(--fpl-green)]/30 text-sm font-bold">
+      <i class="fa-solid fa-bullhorn mr-2"></i>NEW RELEASE
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <!-- Feature 2 -->
+    <div class="feature-card bg-gradient-to-br from-[var(--fpl-card-bg)] to-[#1a0b3a] p-6 rounded-xl border border-[var(--fpl-border)] hover:border-[var(--fpl-green)]/50 transition-all duration-300">
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-full bg-gradient-to-br from-[#ff6b6b] to-[#ffa36c] flex items-center justify-center flex-shrink-0">
+          <i class="fa-solid fa-trophy text-white text-lg"></i>
+        </div>
+        <div>
+          <h3 class="text-white font-bold text-lg mb-2">Ships System</h3>
+          <p class="text-[var(--fpl-muted)] text-sm mb-3">
+            Experience the ultimate tactical advantage with our exclusive 3-ship formation system!
+          </p>
+          <div class="flex gap-2">
+            <span class="px-3 py-1 bg-[var(--fpl-blue)]/30 rounded-full text-xs font-semibold text-[#ff6b6b]">RANKING</span>
+            <span class="px-3 py-1 bg-[var(--fpl-blue)]/30 rounded-full text-xs font-semibold text-[var(--fpl-light-blue)]">REAL-TIME</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-8 pt-6 border-t border-[var(--fpl-border)]">
+    <div class="flex items-center justify-between">
+      <div class="text-sm text-[var(--fpl-muted)]">
+        <i class="fa-solid fa-clock mr-2"></i>Published: <?php echo date('F j, Y'); ?>
+      </div>
+      <button id="toggle-features" class="px-4 py-2 rounded-full bg-[var(--fpl-blue)]/50 border border-[var(--fpl-border)] text-sm font-semibold hover:bg-[var(--fpl-blue)]/70 transition-colors">
+        <i class="fa-solid fa-chevron-down mr-2"></i>View All Updates
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  $(document).ready(function() {
+    $('.feature-card').each(function(i) {
+      $(this).css({
+        opacity: 0,
+        transform: 'translateY(20px)'
+      });
+      
+      setTimeout(() => {
+        $(this).animate({
+          opacity: 1,
+          transform: 'translateY(0)'
+        }, 400 + (i * 100));
+      }, 300);
+    });
+
+    $('#toggle-features').on('click', function() {
+      const $icon = $(this).find('i');
+      if ($icon.hasClass('fa-chevron-down')) {
+        $icon.removeClass('fa-chevron-down').addClass('fa-chevron-up');
+        $(this).html('<i class="fa-solid fa-chevron-up mr-2"></i>Show Less');
+        alert('More features coming soon! Stay tuned for future updates.');
+      } else {
+        $icon.removeClass('fa-chevron-up').addClass('fa-chevron-down');
+        $(this).html('<i class="fa-solid fa-chevron-down mr-2"></i>View All Updates');
+      }
+    });
+
+    $('.feature-card').hover(
+      function() {
+        $(this).css({
+          transform: 'translateY(-5px)',
+          boxShadow: '0 15px 30px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 255, 135, 0.1)'
+        });
+      },
+      function() {
+        $(this).css({
+          transform: 'translateY(0)',
+          boxShadow: 'none'
+        });
+      }
+    );
+  });
+</script>
+    
   <section class="card rounded-2xl p-8">
     <div class="flex flex-col lg:flex-row gap-8 items-center">
       <div class="flex items-center gap-6 flex-1">

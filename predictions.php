@@ -390,6 +390,5 @@ const x = setInterval(() => {
   document.getElementById("countdown").innerHTML = `⏳ Time remaining: ${timeString}`;
 }, 1000);
 </script>
-
 </body>
 </html>
