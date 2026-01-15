@@ -394,54 +394,72 @@ input[type="radio"]:disabled {
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
 
-  <!-- DOUBLE ALL -->
-  <div class="card p-5 text-center <?= $card_status['double_all_used'] ? 'opacity-50' : '' ?>">
+  <div class="card p-5 text-center" id="double_all_card">
     <h3 class="font-black text-lg mb-2">🔥 Double All Points</h3>
     <p class="text-sm text-[var(--fpl-muted)] mb-3">Once ever</p>
-      <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship makes all your match points doubled</p>
-
-    <?php if ($card_status['double_all_used']): ?>
-      <div class="font-black text-green-400">USED</div>
-    <?php else: ?>
-      <button onclick="useCard('double_all')"
-        class="w-full py-2 rounded-lg font-bold bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] text-black">
-        Activate
-      </button>
-    <?php endif; ?>
+    <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship makes all your match points doubled</p>
+    <button id="double_all_btn"
+      class="w-full py-2 rounded-lg font-bold bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] text-black">
+      Activate
+    </button>
+    <div id="double_all_deadline" class="text-red-400 font-bold mt-2"></div>
   </div>
 
-  <!-- TRIPLE MATCH -->
-  <div class="card p-5 text-center <?= $card_status['triple_match_used'] ? 'opacity-50' : '' ?>">
+  <div class="card p-5 text-center" id="triple_match_card">
     <h3 class="font-black text-lg mb-2">⭐⭐⭐ Triple One Match</h3>
     <p class="text-sm text-[var(--fpl-muted)] mb-3">Once ever</p>
-         <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship make the match you select tripled</p>
-
-    <?php if ($card_status['triple_match_used']): ?>
-      <div class="font-black text-green-400">USED</div>
-    <?php else: ?>
-      <p class="text-xs text-yellow-400 font-semibold">
-        Select a match below
-      </p>
-    <?php endif; ?>
+    <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship make the match you select tripled</p>
+    <button id="triple_match_btn"
+      class="w-full py-2 rounded-lg font-bold bg-gradient-to-r from-yellow-400 to-orange-500 text-black">
+      Activate
+    </button>
+    <div id="triple_match_deadline" class="text-red-400 font-bold mt-2"></div>
   </div>
 
-  <!-- BEST GW -->
-  <div class="card p-5 text-center <?= $card_status['best_gw_used'] ? 'opacity-50' : '' ?>">
+  <div class="card p-5 text-center" id="best_gw_card">
     <h3 class="font-black text-lg mb-2">🛡 Best of Two GWs</h3>
     <p class="text-sm text-[var(--fpl-muted)] mb-3">Once ever</p>
-         <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship gives you the highest points between the last and the current gameweek</p>
-
-    <?php if ($card_status['best_gw_used']): ?>
-      <div class="font-black text-green-400">USED</div>
-    <?php else: ?>
-      <button onclick="useCard('best_gw')"
-        class="w-full py-2 rounded-lg font-bold bg-gradient-to-r from-purple-400 to-purple-600 text-black">
-        Activate
-      </button>
-    <?php endif; ?>
+    <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship gives you the highest points between the last and the current gameweek</p>
+    <button id="best_gw_btn"
+      class="w-full py-2 rounded-lg font-bold bg-gradient-to-r from-purple-400 to-purple-600 text-black">
+      Activate
+    </button>
+    <div id="best_gw_deadline" class="text-red-400 font-bold mt-2"></div>
   </div>
 
 </div>
+
+<script>
+  const deadline = new Date('2026-01-17T13:00:00');
+
+  const cards = [
+    { btn: 'double_all_btn', msg: 'double_all_deadline' },
+    { btn: 'triple_match_btn', msg: 'triple_match_deadline' },
+    { btn: 'best_gw_btn', msg: 'best_gw_deadline' },
+  ];
+
+  function checkDeadline() {
+    const now = new Date();
+    const passed = now > deadline;
+
+    cards.forEach(card => {
+      const btn = document.getElementById(card.btn);
+      const msg = document.getElementById(card.msg);
+
+      if (passed) {
+        btn.disabled = true;
+        btn.classList.add('opacity-50', 'cursor-not-allowed');
+        msg.textContent = 'Deadline passed';
+      } else {
+        msg.textContent = `Deadline: ${deadline.toLocaleString()}`;
+      }
+    });
+  }
+
+  checkDeadline();
+
+  setInterval(checkDeadline, 60000);
+</script>
 
 </div>
 
