@@ -1,6 +1,37 @@
 <?php
+$settings = $conn->query("SELECT * FROM global_settings WHERE id=1")->fetch_assoc();
+
+/* GLOBAL LOCKS */
+if (!$settings['site_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>🚫 SITE DISABLED BY ADMIN</h2>");
+}
+
+if ($settings['maintenance_mode']) {
+    die("<h2 style='color:orange;text-align:center;margin-top:100px'>🛠️ SYSTEM UNDER MAINTENANCE</h2>");
+}
+
+/* PAGE SYSTEMS */
+$current_page = basename($_SERVER['PHP_SELF']);
+
+if ($current_page == 'predictions.php' && !$settings['predictions_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>⛔ PREDICTIONS CLOSED</h2>");
+}
+
+if ($current_page == 'other_matches.php' && !$settings['other_leagues_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>⛔ OTHER LEAGUES DISABLED</h2>");
+}
+
+/* DOUBLE POINTS SYSTEM */
+$DOUBLE_POINTS_ACTIVE = (bool)$settings['double_points_enabled'];
+
+/* WHATSAPP SYSTEM */
+$WHATSAPP_ACTIVE = (bool)$settings['whatsapp_enabled'];
+?>
+
+<?php
 session_start();
 include 'connect.php';
+include 'maintenance.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -9,7 +40,15 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = $_SESSION['user_id'];
 
-/* Gameweeks */
+// Check if other leagues feature is enabled
+$other_leagues_enabled = is_feature_enabled($conn, 'other_leagues');
+
+if (!$other_leagues_enabled) {
+    header("Location: predictions.php?message=other_leagues_disabled");
+    exit;
+}
+
+// Gameweeks
 $gw_sql = "SELECT DISTINCT gameweek FROM matches
            WHERE competition <> 'Premier League'
            ORDER BY gameweek ASC";
@@ -27,7 +66,17 @@ if ($selected_gw < $last_gameweek) {
     exit;
 }
 
-/* 🔒 Check if predictions already submitted */
+// Check if gameweek is open
+$gameweek_open = true;
+$status_query = $conn->prepare("SELECT is_open FROM gameweek_status WHERE gameweek = ?");
+$status_query->bind_param("i", $selected_gw);
+$status_query->execute();
+$status_result = $status_query->get_result();
+if ($status_row = $status_result->fetch_assoc()) {
+    $gameweek_open = (bool)$status_row['is_open'];
+}
+
+// Check if predictions already submitted
 $lock_sql = "SELECT COUNT(*) AS total
              FROM score_exact se
              JOIN matches m ON se.match_id = m.id
@@ -39,7 +88,7 @@ $lock_stmt->bind_param("ii", $user_id, $selected_gw);
 $lock_stmt->execute();
 $predictions_locked = $lock_stmt->get_result()->fetch_assoc()['total'] > 0;
 
-/* Matches */
+// Matches
 $sql = "SELECT m.*, p.predicted_home, p.predicted_away
         FROM matches m
         LEFT JOIN score_exact p
@@ -349,7 +398,7 @@ body {
     <div class="flex items-center gap-2">
         <div class="relative">
             <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--fpl-green)] to-[var(--fpl-light-blue)] flex items-center justify-center shadow-lg">
-                <span class="text-black font-extrabold text-base">FPL</span>
+                <span class="text-black font-extrabold text-base">us</span>
             </div>
             <div class="absolute -top-1 -right-1 w-4 h-4 bg-[var(--fpl-green)] rounded-full border-2 border-[var(--fpl-blue)]"></div>
         </div>
@@ -396,7 +445,7 @@ body {
                 class="card px-3 py-2 rounded-lg font-bold text-white cursor-pointer appearance-none pr-8 w-full hover:border-[var(--fpl-green)] transition-colors text-sm">
           <option value="" disabled>Select Gameweek</option>
           <?php 
-          $gw_result->data_seek(0); // Reset result pointer
+          $gw_result->data_seek(0);
           while ($gw = $gw_result->fetch_assoc()):
             $gw_num = (int)$gw['gameweek'];
           ?>
@@ -417,102 +466,111 @@ body {
     </div>
   </div>
 
-  <form action="insert_all_predictions.php" method="POST">
-    
-    <div class="table-container mb-4">
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th class="w-48">Home Team</th>
-              <th class="w-32">Prediction</th>
-              <th class="w-48">Away Team</th>
-              <th class="w-32">Competition</th>
-            </tr>
-          </thead>
-          <tbody>
-            <?php
-            $result->data_seek(0); 
-            $current_league = "";
-            while ($match = $result->fetch_assoc()):
-              if ($match['competition'] !== $current_league):
-                $current_league = $match['competition'];
-            ?>
-            <tr>
-              <td colspan="4" class="competition-header">
-                <?= htmlspecialchars($current_league) ?>
-              </td>
-            </tr>
-            <?php endif; ?>
-            
-            <tr>
-              <td>
-                <div class="flex items-center justify-end gap-2">
-                  <span class="font-semibold text-right"><?= htmlspecialchars($match['home_team']) ?></span>
-                  <?php if ($match['home_team_pic']): ?>
-                    <img src="<?= htmlspecialchars($match['home_team_pic']) ?>" 
-                         class="team-logo w-20 h-20" 
-                         alt="<?= htmlspecialchars($match['home_team']) ?>">
-                  <?php endif; ?>
-                </div>
-              </td>
+  <?php if (!$gameweek_open): ?>
+    <div class="text-center py-10">
+        <div class="text-4xl mb-4">🔒</div>
+        <h3 class="text-xl font-bold text-white mb-2">Gameweek Closed</h3>
+        <p class="text-[var(--fpl-muted)]">This gameweek has been closed by the administrator.</p>
+        <p class="text-[var(--fpl-muted)] text-sm mt-2">You cannot submit predictions at this time.</p>
+    </div>
+  <?php else: ?>
+    <form action="insert_all_predictions.php" method="POST">
+      
+      <div class="table-container mb-4">
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th class="w-48">Home Team</th>
+                <th class="w-32">Prediction</th>
+                <th class="w-48">Away Team</th>
+                <th class="w-32">Competition</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php
+              $result->data_seek(0); 
+              $current_league = "";
+              while ($match = $result->fetch_assoc()):
+                if ($match['competition'] !== $current_league):
+                  $current_league = $match['competition'];
+              ?>
+              <tr>
+                <td colspan="4" class="competition-header">
+                  <?= htmlspecialchars($current_league) ?>
+                </td>
+              </tr>
+              <?php endif; ?>
               
-              <td>
-                <input type="hidden" name="match_id[]" value="<?= $match['id'] ?>">
-                <div class="score-inputs">
-                  <input type="number" name="predicted_home[]"
-                         value="<?= $match['predicted_home'] ?? '' ?>"
-                         min="0" max="10"
-                         class="score-input"
-                         <?= $predictions_locked ? 'disabled' : 'required' ?>
-                         oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value > 10) this.value = 10;">
-                  
-                  <span class="score-separator">-</span>
-                  
-                  <input type="number" name="predicted_away[]"
-                         value="<?= $match['predicted_away'] ?? '' ?>"
-                         min="0" max="10"
-                         class="score-input"
-                         <?= $predictions_locked ? 'disabled' : 'required' ?>
-                         oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value > 10) this.value = 10;">
-                </div>
-              </td>
-              
-              <td>
-                <div class="flex items-center gap-2">
-                  <?php if ($match['away_team_pic']): ?>
-                    <img src="<?= htmlspecialchars($match['away_team_pic']) ?>" 
-                         class="team-logo w-20 h-20" 
-                         alt="<?= htmlspecialchars($match['away_team']) ?>">
-                  <?php endif; ?>
-                  <span class="font-semibold"><?= htmlspecialchars($match['away_team']) ?></span>
-                </div>
-              </td>
-              
-              <td>
-                <span class="text-[var(--fpl-muted)] text-xs font-semibold px-2 py-1 rounded-full bg-[var(--fpl-card-bg)]">
-                  <?= htmlspecialchars($match['competition']) ?>
-                </span>
-              </td>
-            </tr>
-            <?php endwhile; ?>
-          </tbody>
-        </table>
+              <tr>
+                <td>
+                  <div class="flex items-center justify-end gap-2">
+                    <span class="font-semibold text-right"><?= htmlspecialchars($match['home_team']) ?></span>
+                    <?php if ($match['home_team_pic']): ?>
+                      <img src="<?= htmlspecialchars($match['home_team_pic']) ?>" 
+                           class="team-logo w-20 h-20" 
+                           alt="<?= htmlspecialchars($match['home_team']) ?>">
+                    <?php endif; ?>
+                  </div>
+                </td>
+                
+                <td>
+                  <input type="hidden" name="match_id[]" value="<?= $match['id'] ?>">
+                  <div class="score-inputs">
+                    <input type="number" name="predicted_home[]"
+                           value="<?= $match['predicted_home'] ?? '' ?>"
+                           min="0" max="10"
+                           class="score-input"
+                           <?= $predictions_locked ? 'disabled' : 'required' ?>
+                           oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value > 10) this.value = 10;">
+                    
+                    <span class="score-separator">-</span>
+                    
+                    <input type="number" name="predicted_away[]"
+                           value="<?= $match['predicted_away'] ?? '' ?>"
+                           min="0" max="10"
+                           class="score-input"
+                           <?= $predictions_locked ? 'disabled' : 'required' ?>
+                           oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value > 10) this.value = 10;">
+                  </div>
+                </td>
+                
+                <td>
+                  <div class="flex items-center gap-2">
+                    <?php if ($match['away_team_pic']): ?>
+                      <img src="<?= htmlspecialchars($match['away_team_pic']) ?>" 
+                           class="team-logo w-20 h-20" 
+                           alt="<?= htmlspecialchars($match['away_team']) ?>">
+                    <?php endif; ?>
+                    <span class="font-semibold"><?= htmlspecialchars($match['away_team']) ?></span>
+                  </div>
+                </td>
+                
+                <td>
+                  <span class="text-[var(--fpl-muted)] text-xs font-semibold px-2 py-1 rounded-full bg-[var(--fpl-card-bg)]">
+                    <?= htmlspecialchars($match['competition']) ?>
+                  </span>
+                </td>
+              </tr>
+              <?php endwhile; ?>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
-    
-    <?php if (!$predictions_locked): ?>
-    <button type="submit" class="submit-btn">
-      <i class="fa-solid fa-paper-plane mr-2"></i> Submit ALL Predictions
-    </button>
-    <?php else: ?>
-    <div class="locked-message">
-      <i class="fa-solid fa-lock fa-2x mb-3"></i>
-      <p class="font-bold">Predictions Locked</p>
-      <p class="text-sm">You have already submitted predictions for this gameweek</p>
-    </div>
-    <?php endif; ?>
-  </form>
+      
+      <?php if (!$predictions_locked): ?>
+      <button type="submit" class="submit-btn">
+        <i class="fa-solid fa-paper-plane mr-2"></i> Submit ALL Predictions
+      </button>
+      <?php else: ?>
+      <div class="locked-message">
+        <i class="fa-solid fa-lock fa-2x mb-3"></i>
+        <p class="font-bold">Predictions Locked</p>
+        <p class="text-sm">You have already submitted predictions for this gameweek</p>
+      </div>
+      <?php endif; ?>
+    </form>
+  <?php endif; ?>
 
 </div>
 
@@ -522,7 +580,7 @@ function toggleMenu() {
 }
 
 document.addEventListener("DOMContentLoaded", function () {
-    const DEADLINE = new Date("2025-12-20T18:00:00");
+    const DEADLINE = new Date("2026-02-08T20:00:00");
 
     const countdown = document.getElementById("countdown");
     const timerBox = document.getElementById("deadlineTimer");

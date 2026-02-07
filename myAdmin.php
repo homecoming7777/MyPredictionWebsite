@@ -6,6 +6,40 @@ if (!isset($_SESSION['user_id'])) {
     die("Access denied");
 }
 
+
+
+$settings = $conn->query("SELECT * FROM global_settings WHERE id=1")->fetch_assoc();
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_settings'])) {
+
+    $stmt = $conn->prepare("
+        UPDATE global_settings SET
+        site_enabled=?,
+        predictions_enabled=?,
+        other_leagues_enabled=?,
+        maintenance_mode=?,
+        double_points_enabled=?,
+        whatsapp_enabled=?
+        WHERE id=1
+    ");
+
+    $stmt->bind_param(
+        "iiiiii",
+        $_POST['site_enabled'],
+        $_POST['predictions_enabled'],
+        $_POST['other_leagues_enabled'],
+        $_POST['maintenance_mode'],
+        $_POST['double_points_enabled'],
+        $_POST['whatsapp_enabled']
+    );
+
+    $stmt->execute();
+    header("Location: my_admin.php");
+    exit;
+}
+
+
+
 function sendWhatsApp($phone, $message, $apikey) {
     $url = "https://api.callmebot.com/whatsapp.php?phone=$phone&text=" . urlencode($message) . "&apikey=$apikey";
     $ch = curl_init($url);
@@ -271,5 +305,62 @@ while ($u = $users->fetch_assoc()):
 </div>
 
 </div>
+    
+    <div class="bg-gray-900 p-6 rounded-xl mb-10 border border-gray-700">
+<h2 class="text-xl font-bold text-green-400 mb-6 text-center">🌐 GLOBAL SYSTEM CONTROL</h2>
+
+<form method="POST" class="grid md:grid-cols-2 gap-4">
+
+<label class="text-white">Site Enabled
+<select name="site_enabled" class="w-full bg-gray-800 p-2 rounded">
+<option value="1" <?= $settings['site_enabled']?'selected':'' ?>>ON</option>
+<option value="0" <?= !$settings['site_enabled']?'selected':'' ?>>OFF</option>
+</select>
+</label>
+
+<label class="text-white">Predictions System
+<select name="predictions_enabled" class="w-full bg-gray-800 p-2 rounded">
+<option value="1" <?= $settings['predictions_enabled']?'selected':'' ?>>ON</option>
+<option value="0" <?= !$settings['predictions_enabled']?'selected':'' ?>>OFF</option>
+</select>
+</label>
+
+<label class="text-white">Other Leagues
+<select name="other_leagues_enabled" class="w-full bg-gray-800 p-2 rounded">
+<option value="1" <?= $settings['other_leagues_enabled']?'selected':'' ?>>ON</option>
+<option value="0" <?= !$settings['other_leagues_enabled']?'selected':'' ?>>OFF</option>
+</select>
+</label>
+
+<label class="text-white">Maintenance Mode
+<select name="maintenance_mode" class="w-full bg-gray-800 p-2 rounded">
+<option value="0" <?= !$settings['maintenance_mode']?'selected':'' ?>>OFF</option>
+<option value="1" <?= $settings['maintenance_mode']?'selected':'' ?>>ON</option>
+</select>
+</label>
+
+<label class="text-white">Double Points System
+<select name="double_points_enabled" class="w-full bg-gray-800 p-2 rounded">
+<option value="1" <?= $settings['double_points_enabled']?'selected':'' ?>>ON</option>
+<option value="0" <?= !$settings['double_points_enabled']?'selected':'' ?>>OFF</option>
+</select>
+</label>
+
+<label class="text-white">WhatsApp System
+<select name="whatsapp_enabled" class="w-full bg-gray-800 p-2 rounded">
+<option value="1" <?= $settings['whatsapp_enabled']?'selected':'' ?>>ON</option>
+<option value="0" <?= !$settings['whatsapp_enabled']?'selected':'' ?>>OFF</option>
+</select>
+</label>
+
+<div class="md:col-span-2 text-center mt-4">
+<button name="update_settings" class="bg-green-500 hover:bg-green-600 px-8 py-2 rounded font-bold text-black">
+SAVE SYSTEM SETTINGS
+</button>
+</div>
+
+</form>
+</div>
+
 </body>
 </html>

@@ -2,10 +2,52 @@
 session_start();
 include 'connect.php';
 
+/* ===== ADMIN FEATURE FLAG ===== */
+$settings = $conn->query("SELECT * FROM global_settings WHERE id=1")->fetch_assoc();
+$DOUBLE_POINTS_ACTIVE = (bool)$settings['double_points_enabled'];
+
+/* SECURITY: block hacked requests */
+if(!$DOUBLE_POINTS_ACTIVE){
+    unset($_POST['double_match']);
+}
+
+
 $user_id = $_SESSION['user_id'] ?? null;
 if (!$user_id) die("You must be logged in.");
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['double_match'], $_POST['gameweek'])) {
+
+
+
+$settings = $conn->query("SELECT * FROM global_settings WHERE id=1")->fetch_assoc();
+
+/* GLOBAL LOCKS */
+if (!$settings['site_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>🚫 SITE DISABLED BY ADMIN</h2>");
+}
+
+if ($settings['maintenance_mode']) {
+    die("<h2 style='color:orange;text-align:center;margin-top:100px'>🛠️ SYSTEM UNDER MAINTENANCE</h2>");
+}
+
+/* PAGE SYSTEMS */
+$current_page = basename($_SERVER['PHP_SELF']);
+
+if ($current_page == 'predictions.php' && !$settings['predictions_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>⛔ PREDICTIONS CLOSED</h2>");
+}
+
+if ($current_page == 'other_matches.php' && !$settings['other_leagues_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>⛔ OTHER LEAGUES DISABLED</h2>");
+}
+
+/* DOUBLE POINTS SYSTEM */
+$DOUBLE_POINTS_ACTIVE = (bool)$settings['double_points_enabled'];
+
+/* WHATSAPP SYSTEM */
+$WHATSAPP_ACTIVE = (bool)$settings['whatsapp_enabled'];
+
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST'  && isset($_POST['double_match'], $_POST['gameweek'])) {
     $match_id = intval($_POST['double_match']);
     $gameweek = intval($_POST['gameweek']);
     
@@ -394,7 +436,7 @@ input[type="radio"]:disabled {
 
 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
 
-  <div class="card p-5 text-center" id="double_all_card">
+  <!--<div class="card p-5 text-center" id="double_all_card">
     <h3 class="font-black text-lg mb-2">🔥 Double All Points</h3>
     <p class="text-sm text-[var(--fpl-muted)] mb-3">Once ever</p>
     <p class="text-sm text-[var(--fpl-muted)] mb-3">this ship makes all your match points doubled</p>
@@ -425,7 +467,7 @@ input[type="radio"]:disabled {
       Activate
     </button>
     <div id="best_gw_deadline" class="text-red-400 font-bold mt-2"></div>
-  </div>
+  </div>-->
 
 </div>
 
@@ -470,7 +512,7 @@ input[type="radio"]:disabled {
         My Predictions
       </h1>
       <p class="text-[var(--fpl-muted)] font-medium mt-1 text-sm">
-        <i class="fa-solid fa-calendar-week mr-1"></i>Gameweek <?= $selected_gw ?> • Season 2023/24
+        <i class="fa-solid fa-calendar-week mr-1"></i>Gameweek <?= $selected_gw ?> • Season 2025/26
       </p>
     </div>
     
@@ -536,23 +578,26 @@ input[type="radio"]:disabled {
               <th class="result-cell">Final Result</th>
               <th class="points-cell">Points</th>
               <th class="double-cell">Double</th>
-              <th class="double-cell">Triple</th>
             </tr>
           </thead>
           <tbody>
             <?php if ($predictions->num_rows === 0): ?>
               <tr>
                 <td colspan="6" class="py-8 text-center">
+                    
                   <div class="text-[var(--fpl-muted)] font-medium">
                     <i class="fa-solid fa-inbox fa-lg mb-2 block"></i>
                     No predictions for Gameweek <?= $selected_gw ?>
                   </div>
+                      
                 </td>
+                  <?php else: ?>
+                
               </tr>
-            <?php else: ?>
               <?php while ($row = $predictions->fetch_assoc()): ?>
                 <?php $is_double = ($row['match_id'] == $current_double); ?>
                 <tr>
+                    <td>
                     <div class="font-bold text-white text-sm">
                       <?= $row['home_team'] ?> <span class="text-[var(--fpl-green)] mx-1">vs</span> <?= $row['away_team'] ?>
                     </div>
@@ -585,41 +630,26 @@ input[type="radio"]:disabled {
                     <?= render_points_badge($row['points'], $is_double) ?>
                   </td>
                   <td class="double-cell">
-                    <?php if($is_double): ?>
-                      <span class="inline-flex items-center gap-1 text-[var(--fpl-green)] font-bold text-xs">
-                        <i class="fa-solid fa-star"></i> 
-                        <span class="hidden sm:inline">DOUBLE</span>
-                      </span>
-                    <?php else: ?>
-                      <label class="inline-flex items-center gap-1 cursor-pointer">
-                        <input type="radio" name="double_match" value="<?= $row['match_id'] ?>" 
-                               <?= $current_double ? 'disabled' : '' ?>
-                               class="scale-90">
-                        <span class="text-[var(--fpl-muted)] text-xs font-semibold hidden sm:inline">Select</span>
-                      </label>
-                    <?php endif; ?>
-                  </td>
-                    <td class="double-cell">
-
-  <?php if (!$card_status['triple_match_used']): ?>
-                        <?php if ($row['match_id'] == $triple_match_id): ?>
-  <span class="text-purple-400 font-black text-xs ml-2">
-    ⭐⭐⭐ TRIPLE
-  </span>
+<?php if($DOUBLE_POINTS_ACTIVE): ?>
+    <?php if($is_double): ?>
+      <span class="inline-flex items-center gap-1 text-[var(--fpl-green)] font-bold text-xs">
+        <i class="fa-solid fa-star"></i> 
+        <span class="hidden sm:inline">DOUBLE</span>
+      </span>
+    <?php else: ?>
+      <label class="inline-flex items-center gap-1 cursor-pointer">
+        <input type="radio" name="double_match" value="<?= $row['match_id'] ?>" 
+               <?= $current_double ? 'disabled' : '' ?>
+               class="scale-90">
+        <span class="text-[var(--fpl-muted)] text-xs font-semibold hidden sm:inline">Select</span>
+      </label>
+    <?php endif; ?>
+<?php else: ?>
+    <span class="text-gray-400 text-xs font-semibold">⛔ Closed</span>
 <?php endif; ?>
-    <button
-      onclick="useTriple(<?= $row['match_id'] ?>)"
-      class="px-2 py-1 text-xs font-black rounded
-             bg-purple-600 hover:bg-purple-700 text-white">
-      ⭐ TRIPLE
-    </button>
-
-  <?php else: ?>
-    <span class="text-green-400 font-bold text-xs">USED</span>
-  <?php endif; ?>
-
 </td>
 
+                   
                 </tr>
               <?php endwhile; ?>
             <?php endif; ?>
@@ -628,14 +658,13 @@ input[type="radio"]:disabled {
       </div>
     </div>
     
-    <?php if(!$current_double && $predictions->num_rows > 0): ?>
-    <div class="flex justify-center md:justify-end mt-4">
-      <button type="submit" 
-              class="px-4 py-2 bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] font-bold text-black rounded-lg hover:opacity-90 transition-all shadow-lg w-full sm:w-auto text-sm">
-        <i class="fa-solid fa-save mr-1"></i> Save Double Points Selection
-      </button>
-    </div>
-    <?php endif; ?>
+    <?php if($DOUBLE_POINTS_ACTIVE && !$current_double && $predictions->num_rows > 0): ?>
+<div class="flex justify-center md:justify-end mt-4">
+  <button type="submit"class="px-4 py-2 bg-gradient-to-r from-[var(--fpl-green)] to-[var(--fpl-light-blue)] font-bold text-black rounded-lg hover:opacity-90 transition-all shadow-lg w-full sm:w-auto text-sm">
+        <i class="fa-solid fa-save mr-1"></i>Save Double Points Selection</button>
+</div>
+<?php endif; ?>
+
   </form>
 
   <div class="mb-8">
@@ -722,14 +751,21 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function updateTimer() {
+        
+        if (!<?= $DOUBLE_POINTS_ACTIVE ? 'true' : 'false' ?>) {
+    closeDouble();
+    clearInterval(interval);
+    return;
+}
+
+        
         const now = new Date();
         const diff = DEADLINE - now;
 
-        if (diff <= 0) {
-            closeDouble();
-            clearInterval(interval);
-            return;
-        }
+        radios.forEach(radio => {
+    td.innerHTML = `<span class="text-gray-400 text-xs font-semibold">⛔ Closed</span>`;
+});
+
 
         const h = Math.floor(diff / (1000 * 60 * 60));
         const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));

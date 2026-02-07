@@ -15,6 +15,41 @@ function fetch_one($conn, $sql) {
     return $row ? $row[0] : null;
 }
 
+$settings = $conn->query("SELECT * FROM global_settings WHERE id=1")->fetch_assoc();
+
+
+if (!$settings['site_enabled']) {
+    die("<h2 style='
+    		color:red;
+            font-size:xxx-large;
+            text-align:center;
+            margin-top:100px;
+            background-color:black;
+            '>🚫 SITE DISABLED BY ADMIN</h2>");
+}
+
+if ($settings['maintenance_mode']) {
+    die("<h2 style='color:orange;text-align:center;margin-top:100px'>🛠️ SYSTEM UNDER MAINTENANCE</h2>");
+}
+
+
+$current_page = basename($_SERVER['PHP_SELF']);
+
+if ($current_page == 'predictions.php' && !$settings['predictions_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>⛔ PREDICTIONS CLOSED</h2>");
+}
+
+if ($current_page == 'other_matches.php' && !$settings['other_leagues_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>⛔ OTHER LEAGUES DISABLED</h2>");
+}
+
+
+$DOUBLE_POINTS_ACTIVE = (bool)$settings['double_points_enabled'];
+
+
+$WHATSAPP_ACTIVE = (bool)$settings['whatsapp_enabled'];
+
+
 
 $stmt = $conn->prepare("SELECT username, favorite_team, avatar FROM users WHERE id = ? LIMIT 1");
 $stmt->bind_param("i", $uid);
@@ -181,6 +216,10 @@ $leaders_display = array_slice($leaders, 0, 5);
   --fpl-muted: #a0a0c0;
 }
 
+    .disable_web{
+    background-color: black;
+    }
+    
 body {
   background: 
     linear-gradient(135deg, #0a0222 0%, #1a0b3a 30%, #2a1a5e 100%),

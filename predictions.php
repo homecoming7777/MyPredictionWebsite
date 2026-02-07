@@ -7,6 +7,35 @@ if (!isset($_SESSION['user_id'])) {
   exit;
 }
 
+$settings = $conn->query("SELECT * FROM global_settings WHERE id=1")->fetch_assoc();
+
+/* GLOBAL LOCKS */
+if (!$settings['site_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>🚫 SITE DISABLED BY ADMIN</h2>");
+}
+
+if ($settings['maintenance_mode']) {
+    die("<h2 style='color:orange;text-align:center;margin-top:100px'>🛠️ SYSTEM UNDER MAINTENANCE</h2>");
+}
+
+/* PAGE SYSTEMS */
+$current_page = basename($_SERVER['PHP_SELF']);
+
+if ($current_page == 'predictions.php' && !$settings['predictions_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>⛔ PREDICTIONS CLOSED</h2>");
+}
+
+if ($current_page == 'other_matches.php' && !$settings['other_leagues_enabled']) {
+    die("<h2 style='color:red;text-align:center;margin-top:100px'>⛔ OTHER LEAGUES DISABLED</h2>");
+}
+
+/* DOUBLE POINTS SYSTEM */
+$DOUBLE_POINTS_ACTIVE = (bool)$settings['double_points_enabled'];
+
+/* WHATSAPP SYSTEM */
+$WHATSAPP_ACTIVE = (bool)$settings['whatsapp_enabled'];
+
+
 $user_id = $_SESSION['user_id'];
 
 $latest_sql = "SELECT MAX(gameweek) AS latest_gw FROM matches WHERE competition = 'Premier League'";
