@@ -7,6 +7,20 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+/*
+|--------------------------------------------------------------------------
+| HELPER: SAFE OUTPUT
+|--------------------------------------------------------------------------
+*/
+function e($value)
+{
+    return htmlspecialchars(
+        (string)$value,
+        ENT_QUOTES,
+        'UTF-8'
+    );
+}
+
 if (isset($_GET['id'])) {
     $user_id = intval($_GET['id']);  
 } else {
@@ -20,7 +34,7 @@ $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc();
 
 if (!$user) {
-    echo "❌ User not found.";
+    echo "User not found.";
     exit();
 }
 
@@ -61,7 +75,7 @@ if ($isOwner && $_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['new_userna
         $check_result = $check->get_result();
 
         if ($check_result->num_rows > 0) {
-            $error = "⚠️ Username already taken!";
+            $error = "Username already taken!";
         } else {
             $update = $conn->prepare("UPDATE users SET username=? WHERE id=?");
             $update->bind_param("si", $new_username, $user_id);
@@ -71,7 +85,7 @@ if ($isOwner && $_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['new_userna
             exit;
         }
     } else {
-        $error = "⚠️ Username cannot be empty.";
+        $error = "Username cannot be empty.";
     }
 }
 
@@ -100,104 +114,256 @@ $success_rate = $total > 0 ? round(($correct / $total) * 100, 2) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta charset="UTF-8">
-  <title><?php echo htmlspecialchars($user['username']); ?> - Profile</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Profile | Premier League</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+
 <style>
-  body {
-    background: linear-gradient(to right, #00055cff, #470040ff);
-  }
-  #div {
-    box-shadow: 5px 5px 50px gray;
-  }
+    /* Only keeping essential CSS for background image and overlay */
+    body {
+        background-image: url('PL_img/current.jpg');
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        background-color: #1c003a;
+        font-family: Arial, Helvetica, sans-serif;
+    }
+    
+    body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(10, 0, 21, 0.75); /* Deep Purple Tint */
+        z-index: -1;
+        pointer-events: none;
+    }
 </style>
-<body class="flex items-center justify-center min-h-screen">
-  <div class="bg-white shadow-lg rounded-2xl p-6 w-full max-w-md" id="div">
 
-    <div class="flex flex-col items-center">
-      <img src="<?php echo htmlspecialchars($user['avatar']); ?>" 
-           alt="Avatar" 
-           class="w-24 h-24 rounded-full shadow-md object-cover">
-      <h1 class="text-2xl font-bold mt-4"><?php echo htmlspecialchars($user['username']); ?></h1>
-      <p class="mt-2 text-indigo-600 font-semibold">
-         Favorite Team: <?php echo htmlspecialchars($user['favorite_team']); ?>
-      </p>
+</head>
+
+<body class="min-h-screen pb-16 text-white">
+
+<!-- =========================================================
+     NAVBAR
+========================================================= -->
+<nav class="fixed top-0 left-0 right-0 z-50 bg-[#1c003a]/80 backdrop-blur-xl border-b border-[#ff0080]/30 px-5 md:px-8 py-4 flex justify-between items-center">
+
+    <!-- LOGO -->
+    <a href="dashboard.php" class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden">
+            <img src="PL_img/PL_LOGO1.png" class="w-full h-full object-contain" alt="Premier League">
+        </div>
+        <span class="font-black text-lg text-white">Premier League</span>
+    </a>
+
+    <!-- DESKTOP NAV -->
+    <div class="hidden md:flex items-center gap-7 text-sm font-bold">
+        <a href="dashboard.php" class="hover:text-[#ff9900] transition-colors">Dashboard</a>
+        <a href="predictions.php" class="hover:text-[#ff9900] transition-colors">Predictions</a>
+        <a href="leaderboard.php" class="hover:text-[#ff9900] transition-colors">Leaderboard</a>
+        <a href="my_predictions.php" class="hover:text-[#ff9900] transition-colors">My Predictions</a>
     </div>
 
-    <?php if ($isOwner): ?>
-    <div class="mt-6">
-      <form method="POST" enctype="multipart/form-data" class="flex flex-col items-center space-y-3">
-        <input type="file" name="avatar" accept="image/*" 
-               class="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4
-                      file:rounded-full file:border-0 file:text-sm file:font-semibold
-                      file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" required>
-        <button type="submit" 
-                class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
-          Update Avatar
-        </button>
-      </form>
+    <!-- RIGHT: Avatar + Mobile toggle -->
+    <div class="flex items-center gap-4">
+        <a href="profile.php" class="hidden md:flex items-center gap-3">
+            <img src="<?= e($user['avatar']) ?>" alt="avatar"
+                 class="w-10 h-10 rounded-full object-cover border-2 border-[#ff0080]/50 shadow-[0_0_25px_rgba(255,0,128,0.25)]">
+            <span class="text-sm font-bold text-gray-300"><?= e($user['username']) ?></span>
+        </a>
+
+        <button onclick="toggleMenu()" class="md:hidden text-lg px-2 font-bold text-white">Menu</button>
     </div>
 
-    <div class="mt-6">
-      <form method="POST" class="flex flex-col items-center space-y-3">
-        <input type="text" name="new_username" placeholder="Enter new username"
-               class="border rounded-lg px-3 py-2 w-full text-center focus:ring-2 focus:ring-indigo-500"
-               required>
-        <button type="submit"
-                class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-          Update Username
-        </button>
-      </form>
-      <?php if (!empty($error)): ?>
-        <p class="text-red-500 text-center mt-2"><?php echo $error; ?></p>
-      <?php endif; ?>
+</nav>
+
+<!-- MOBILE MENU -->
+<div id="mobileMenu" class="hidden fixed top-[73px] left-0 right-0 z-40 bg-[#1c003a]/95 backdrop-blur-xl border-b border-[#ff0080]/30 p-6">
+    <div class="flex flex-col gap-5 font-bold">
+        <a href="dashboard.php" class="hover:text-[#ff9900] transition-colors">Dashboard</a>
+        <a href="predictions.php" class="hover:text-[#ff9900] transition-colors">Predictions</a>
+        <a href="leaderboard.php" class="hover:text-[#ff9900] transition-colors">Leaderboard</a>
+        <a href="my_predictions.php" class="hover:text-[#ff9900] transition-colors">My Predictions</a>
+    </div>
+</div>
+
+<script>
+function toggleMenu() {
+    document.getElementById('mobileMenu').classList.toggle('hidden');
+}
+</script>
+
+<div class="h-24"></div>
+
+<!-- =========================================================
+     MAIN
+========================================================= -->
+<main class="max-w-4xl mx-auto px-4">
+
+    <!-- PAGE HEADER -->
+    <div class="flex flex-col md:flex-row justify-between items-center gap-6 mb-8">
+        <div class="flex items-center gap-4">
+            <div class="w-16 h-16 rounded-full p-2 flex items-center justify-center bg-white">
+                <img src="PL_img/PL_LOGO1.png" class="w-full h-full object-contain" alt="Premier League">
+            </div>
+            <div>
+                <div class="text-[#ff0080] text-sm font-black uppercase tracking-widest">User</div>
+                <h1 class="text-3xl md:text-5xl font-black text-white">Profile</h1>
+                <p class="text-gray-300 mt-1">View and manage your profile</p>
+            </div>
+        </div>
+
+        <!-- Quick link back to users -->
+        <a href="users.php" class="text-sm text-gray-400 hover:text-white transition">
+            Back to Users
+        </a>
     </div>
 
-    <div class="mt-6">
-      <form method="POST" class="flex flex-col items-center space-y-3">
-        <select name="favorite_team" 
-                class="border rounded-lg px-3 py-2 w-full text-center focus:ring-2 focus:ring-indigo-500" required>
-          <option value="">-- Select your team --</option>
-          <?php foreach ($teams as $team): ?>
-            <option value="<?php echo htmlspecialchars($team); ?>"
-              <?php if ($user['favorite_team'] == $team) echo 'selected'; ?>>
-              <?php echo htmlspecialchars($team); ?>
-            </option>
-          <?php endforeach; ?>
-        </select>
-        <button type="submit"
-                class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-          Update Favorite Team
-        </button>
-      </form>
-    </div>
-    <?php endif; ?>
+    <!-- =========================================================
+         PROFILE CARD
+    ========================================================= -->
+    <div class="bg-[#1c003a]/80 backdrop-blur-xl border border-[#ff0080]/30 rounded-3xl p-6 md:p-8 mb-8 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
 
-    <div class="mt-6">
-      <h2 class="text-lg font-semibold text-gray-700 mb-2">📊 Statistics</h2>
-      <div class="bg-gray-50 p-4 rounded-lg shadow">
-        <p>Total Predictions: <span class="font-bold"><?php echo $total; ?></span></p>
-        <p>Correct Predictions: <span class="font-bold text-green-600"><?php echo $correct; ?></span></p>
-        <p>Success Rate: 
-          <span class="font-bold text-blue-600"><?php echo $success_rate; ?>%</span>
-        </p>
-      </div>
+        <!-- Avatar & basic info -->
+        <div class="flex flex-col md:flex-row items-center gap-6">
+
+            <div class="relative flex-shrink-0">
+                <img src="<?= e($user['avatar']) ?>" alt="avatar"
+                     class="w-28 h-28 md:w-32 md:h-32 rounded-full object-cover border-2 border-[#ff0080]/50 shadow-[0_0_25px_rgba(255,0,128,0.25)]">
+                <?php if ($isOwner): ?>
+                    <div class="absolute -bottom-1 -right-1 rounded-full p-1 bg-pink-500">
+                        <div class="w-8 h-8 rounded-full bg-black flex items-center justify-center text-xs font-black text-white">
+                            Edit
+                        </div>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <div class="flex-1 text-center md:text-left">
+                <h2 class="text-3xl font-black text-white"><?= e($user['username']) ?></h2>
+                <p class="text-gray-300 mt-1">
+                    Favorite team: <span class="text-white font-bold"><?= e($user['favorite_team']) ?></span>
+                </p>
+                <?php if (!$isOwner): ?>
+                    <div class="mt-2 text-sm text-gray-500">Viewing another user's profile</div>
+                <?php endif; ?>
+            </div>
+
+            <?php if ($isOwner): ?>
+                <div class="flex-shrink-0 bg-gradient-to-r from-[#e90052] to-[#ff9900] text-white px-6 py-3 rounded-2xl font-black shadow-lg shadow-pink-500/20">
+                    <div class="text-sm uppercase tracking-wider">You</div>
+                    <div class="text-lg">Owner</div>
+                </div>
+            <?php endif; ?>
+
+        </div>
+
+        <!-- =========================================================
+             EDIT SECTIONS (only for owner)
+        ========================================================= -->
+        <?php if ($isOwner): ?>
+
+            <!-- Avatar upload -->
+            <div class="mt-8 pt-6 border-t border-white/10">
+                <h3 class="text-lg font-black mb-4 text-white">Update Avatar</h3>
+                <form method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-4">
+                    <input type="file" name="avatar" accept="image/*"
+                           class="bg-black/35 border-2 border-[#e90052]/40 text-white rounded-xl p-2 w-full text-sm" required>
+                    <button type="submit" class="bg-[#e90052] hover:bg-[#ff1a66] text-black font-black transition hover:-translate-y-0.5 hover:shadow-[0_8px_25px_rgba(233,0,82,0.3)] px-6 py-2 rounded-xl text-sm">
+                        Upload
+                    </button>
+                </form>
+            </div>
+
+            <!-- Username update -->
+            <div class="mt-6 pt-6 border-t border-white/10">
+                <h3 class="text-lg font-black mb-4 text-white">Change Username</h3>
+                <form method="POST" class="flex flex-col sm:flex-row items-center gap-4">
+                    <input type="text" name="new_username" placeholder="Enter new username"
+                           class="bg-black/45 border-2 border-[#e90052]/50 text-[#ffd86b] font-bold shadow-[0_0_20px_rgba(233,0,82,0.1)] focus:border-[#e90052] focus:outline-none focus:shadow-[0_0_30px_rgba(233,0,82,0.25)] w-full sm:w-64 rounded-xl px-4 py-3 text-center"
+                           required>
+                    <button type="submit" class="bg-[#22c55e] hover:bg-[#2ddb6e] text-black font-black transition hover:-translate-y-0.5 hover:shadow-[0_8px_25px_rgba(34,197,94,0.3)] px-6 py-3 rounded-xl text-sm">
+                        Update
+                    </button>
+                </form>
+                <?php if (!empty($error)): ?>
+                    <p class="text-red-400 text-sm mt-2"><?= e($error) ?></p>
+                <?php endif; ?>
+            </div>
+
+            <!-- Favorite team update -->
+            <div class="mt-6 pt-6 border-t border-white/10">
+                <h3 class="text-lg font-black mb-4 text-white">Change Favorite Team</h3>
+                <form method="POST" class="flex flex-col sm:flex-row items-center gap-4">
+                    <select name="favorite_team"
+                            class="bg-black/45 border-2 border-[#e90052]/50 text-[#ffd86b] font-bold shadow-[0_0_20px_rgba(233,0,82,0.1)] focus:border-[#e90052] focus:outline-none focus:shadow-[0_0_30px_rgba(233,0,82,0.25)] w-full sm:w-64 rounded-xl px-4 py-3 text-center"
+                            required>
+                        <option value="">-- Select your team --</option>
+                        <?php foreach ($teams as $team): ?>
+                            <option value="<?= e($team) ?>"
+                                <?php if ($user['favorite_team'] == $team) echo 'selected'; ?>>
+                                <?= e($team) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="submit" class="bg-[#8b5cf6] hover:bg-[#a78bfa] text-white font-black transition hover:-translate-y-0.5 hover:shadow-[0_8px_25px_rgba(139,92,246,0.3)] px-6 py-3 rounded-xl text-sm">
+                        Update Team
+                    </button>
+                </form>
+            </div>
+
+        <?php endif; ?>
+
     </div>
 
-    <div class="mt-6 text-center">
-      <a href="users.php" class="text-blue-500 hover:underline">⬅ Back to Users</a>
+    <!-- =========================================================
+         STATISTICS CARD
+    ========================================================= -->
+    <div class="bg-[#1c003a]/80 backdrop-blur-xl border border-[#ff0080]/30 rounded-3xl p-6 md:p-8 mb-8 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
+        <h3 class="text-xl font-black mb-6 text-white">Statistics</h3>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-black/30 rounded-2xl p-5 text-center">
+                <div class="text-gray-500 text-xs uppercase font-black">Total Predictions</div>
+                <div class="text-3xl font-black text-white"><?= (int)$total ?></div>
+            </div>
+            <div class="bg-black/30 rounded-2xl p-5 text-center">
+                <div class="text-gray-500 text-xs uppercase font-black">Correct</div>
+                <div class="text-3xl font-black text-green-400"><?= (int)$correct ?></div>
+            </div>
+            <div class="bg-black/30 rounded-2xl p-5 text-center">
+                <div class="text-gray-500 text-xs uppercase font-black">Success Rate</div>
+                <div class="text-3xl font-black text-[#ff9900]"><?= $success_rate ?>%</div>
+            </div>
+        </div>
     </div>
 
-    <div class="flex justify-center mt-10">
-      <a href="dashboard.php">
-        <button class="relative h-12 overflow-hidden rounded bg-neutral-150 px-5 py-2.5 transition-all duration-300 hover:bg-neutral-100 hover:ring-2 hover:ring-neutral-800 hover:ring-offset-2">
-          <span class="relative">Back to Dashboard</span>
-        </button>
-      </a>
+    <!-- =========================================================
+         DASHBOARD BUTTON
+    ========================================================= -->
+    <div class="text-center">
+        <a href="dashboard.php" class="inline-block bg-[#e90052] hover:bg-[#ff1a66] text-black px-8 py-4 rounded-xl text-lg font-black shadow-lg shadow-pink-500/20 transition hover:-translate-y-0.5">
+            Back to Dashboard
+        </a>
     </div>
-  </div>
+
+    <!-- FOOTER -->
+    <div class="text-center text-gray-500 text-sm mt-10">
+        Premier League Profile
+        <br>
+        Manage your account and track your performance.
+    </div>
+
+</main>
+
 </body>
 </html>

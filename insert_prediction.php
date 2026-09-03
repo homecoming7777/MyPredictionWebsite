@@ -1,104 +1,772 @@
 <?php
+
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 session_start();
-include 'connect.php';
+
+require_once 'connect.php';
+require_once 'gameweek_deadline.php';
+
+date_default_timezone_set('Africa/Casablanca');
+
+
+/*
+|--------------------------------------------------------------------------
+| LOGIN CHECK
+|--------------------------------------------------------------------------
+*/
 
 if (!isset($_SESSION['user_id'])) {
-  header("Location: login.php");
-  exit;
+
+    header('Location: login.php');
+    exit();
 }
 
-$user_id = (int)$_SESSION['user_id'];
+$user_id = (int) $_SESSION['user_id'];
 
-function normalize_input($key) {
-    if (!isset($_POST[$key])) return [];
-    return is_array($_POST[$key]) ? $_POST[$key] : [$_POST[$key]];
+
+/*
+|--------------------------------------------------------------------------
+| POST ONLY
+|--------------------------------------------------------------------------
+*/
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+
+    header('Location: predictions.php');
+    exit();
 }
 
-$match_ids = normalize_input('match_id');
-$predicted_homes = normalize_input('predicted_home');
-$predicted_aways = normalize_input('predicted_away');
 
-if (count($match_ids) === 0) {
-    header("Location: other_matches.php?error=no_matches");
-    exit;
-}
+/*
+|--------------------------------------------------------------------------
+| DETECT MULTIPLE OR SINGLE PREDICTION
+|--------------------------------------------------------------------------
+*/
 
-$conn->begin_transaction();
-
-try {
-    $check_stmt = $conn->prepare("SELECT id, predicted_home, predicted_away FROM score_exact WHERE user_id = ? AND match_id = ?");
-    if (!$check_stmt) throw new Exception("Prepare check_stmt failed: " . $conn->error);
-
-    $update_stmt = $conn->prepare("UPDATE score_exact SET predicted_home = ?, predicted_away = ? WHERE user_id = ? AND match_id = ?");
-    if (!$update_stmt) throw new Exception("Prepare update_stmt failed: " . $conn->error);
-
-    $insert_stmt = $conn->prepare("INSERT INTO score_exact (user_id, match_id, predicted_home, predicted_away) VALUES (?, ?, ?, ?)");
-    if (!$insert_stmt) throw new Exception("Prepare insert_stmt failed: " . $conn->error);
-
-    $match_time_stmt = $conn->prepare("SELECT match_date FROM matches WHERE id = ?");
-    if (!$match_time_stmt) throw new Exception("Prepare match_time_stmt failed: " . $conn->error);
+$isMultiplePrediction =
+    isset($_POST['match_id'])
+    && is_array($_POST['match_id']);
 
 
-    for ($i = 0; $i < count($match_ids); $i++) {
-        $mid_raw = $match_ids[$i];
-        if ($mid_raw === '' || $mid_raw === null) continue;
-        $match_id = (int)$mid_raw;
+/*
+|--------------------------------------------------------------------------
+| MULTIPLE PREDICTIONS
+|--------------------------------------------------------------------------
+|
+| Used by predictions.php
+|
+*/
 
-        $home_raw = $predicted_homes[$i] ?? null;
-        $away_raw = $predicted_aways[$i] ?? null;
+if ($isMultiplePrediction) {
 
-        if ($home_raw === null || $away_raw === null || $home_raw === '' || $away_raw === '') {
-            continue;
-        }
+    $matchIds =
+        $_POST['match_id'] ?? [];
 
-        $home = (int)$home_raw;
-        $away = (int)$away_raw;
+    $homeScores =
+        $_POST['predicted_home'] ?? [];
 
-        $match_time_stmt->bind_param("i", $match_id);
-        $match_time_stmt->execute();
-        $match_time_stmt->store_result();
-        if ($match_time_stmt->num_rows === 0) {
-            continue;
-        }
-        $match_time_stmt->bind_result($match_date_str);
-        $match_time_stmt->fetch();
+    $awayScores =
+        $_POST['predicted_away'] ?? [];
 
-        $match_dt = new DateTime($match_date_str, new DateTimeZone("UTC"));
-        if ($now >= $match_dt) {
-            continue;
-        }
 
-        $check_stmt->bind_param("ii", $user_id, $match_id);
-        $check_stmt->execute();
-        $check_stmt->store_result();
+    if (
+        !is_array($matchIds)
+        ||
+        !is_array($homeScores)
+        ||
+        !is_array($awayScores)
+    ) {
 
-        if ($check_stmt->num_rows > 0) {
-            $update_stmt->bind_param("iiii", $home, $away, $user_id, $match_id);
-            if (!$update_stmt->execute()) {
-                throw new Exception("Update failed for match_id {$match_id}: " . $update_stmt->error);
-            }
-        } else {
-            $insert_stmt->bind_param("iiii", $user_id, $match_id, $home, $away);
-            if (!$insert_stmt->execute()) {
-                throw new Exception("Insert failed for match_id {$match_id}: " . $insert_stmt->error);
-            }
-        }
-
+        die('ERROR: Invalid prediction data.');
     }
 
-    $conn->commit();
 
-    $check_stmt->close();
-    $update_stmt->close();
-    $insert_stmt->close();
-    $match_time_stmt->close();
+    if (count($matchIds) === 0) {
 
-    header("Location: other_matches.php?success=1");
-    exit;
+        die('ERROR: No matches received.');
+    }
 
-} catch (Exception $e) {
-    $conn->rollback();
-    error_log("insert_prediction error: " . $e->getMessage());
-    echo "An error occurred while saving predictions: " . htmlspecialchars($e->getMessage());
-    exit;
+
+    if (
+        count($matchIds) !== count($homeScores)
+        ||
+        count($matchIds) !== count($awayScores)
+    ) {
+
+        die('ERROR: Prediction data does not match.');
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | GET GAMEWEEK FROM FIRST MATCH
+    |--------------------------------------------------------------------------
+    */
+
+    $firstMatchId =
+        (int) $matchIds[0];
+
+
+    $gameweek = 0;
+
+
+    $gameweekStmt = $conn->prepare("
+        SELECT gameweek
+        FROM matches
+        WHERE id = ?
+        LIMIT 1
+    ");
+
+
+    if (!$gameweekStmt) {
+
+        die(
+            'DATABASE ERROR: ' .
+            htmlspecialchars($conn->error)
+        );
+    }
+
+
+    $gameweekStmt->bind_param(
+        'i',
+        $firstMatchId
+    );
+
+    $gameweekStmt->execute();
+
+    $gameweekResult =
+        $gameweekStmt
+            ->get_result();
+
+    $gameweekRow =
+        $gameweekResult
+            ->fetch_assoc();
+
+    $gameweekStmt->close();
+
+
+    if (!$gameweekRow) {
+
+        die('ERROR: Gameweek not found.');
+    }
+
+
+    $gameweek =
+        (int) $gameweekRow['gameweek'];
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | GLOBAL DEADLINE CHECK
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        isGameweekDeadlinePassed(
+            $conn,
+            $gameweek
+        )
+    ) {
+
+        header(
+            'Location: predictions.php?gameweek=' .
+            $gameweek .
+            '&error=deadline_passed'
+        );
+
+        exit();
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PREPARE STATEMENTS
+    |--------------------------------------------------------------------------
+    */
+
+    $matchStmt = $conn->prepare("
+        SELECT
+            id,
+            gameweek,
+            competition
+        FROM matches
+        WHERE id = ?
+        LIMIT 1
+    ");
+
+
+    $existingStmt = $conn->prepare("
+        SELECT id
+        FROM score_exact
+        WHERE user_id = ?
+        AND match_id = ?
+        LIMIT 1
+    ");
+
+
+    $insertStmt = $conn->prepare("
+        INSERT INTO score_exact
+        (
+            user_id,
+            match_id,
+            predicted_home,
+            predicted_away
+        )
+        VALUES (?, ?, ?, ?)
+    ");
+
+
+    if (
+        !$matchStmt
+        ||
+        !$existingStmt
+        ||
+        !$insertStmt
+    ) {
+
+        die(
+            'DATABASE PREPARE ERROR: ' .
+            htmlspecialchars($conn->error)
+        );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | TRANSACTION
+    |--------------------------------------------------------------------------
+    */
+
+    $conn->begin_transaction();
+
+
+    try {
+
+        foreach ($matchIds as $index => $rawMatchId) {
+
+            $matchId =
+                (int) $rawMatchId;
+
+
+            $homeRaw =
+                $homeScores[$index] ?? '';
+
+
+            $awayRaw =
+                $awayScores[$index] ?? '';
+
+
+            if (is_array($homeRaw)) {
+                throw new Exception(
+                    'Invalid home score.'
+                );
+            }
+
+
+            if (is_array($awayRaw)) {
+                throw new Exception(
+                    'Invalid away score.'
+                );
+            }
+
+
+            $homeRaw =
+                trim((string) $homeRaw);
+
+
+            $awayRaw =
+                trim((string) $awayRaw);
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | SKIP ALREADY EXISTING / READONLY EMPTY CASES
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                $homeRaw === ''
+                ||
+                $awayRaw === ''
+            ) {
+
+                throw new Exception(
+                    'Please enter both scores.'
+                );
+            }
+
+
+            if (
+                !is_numeric($homeRaw)
+                ||
+                !is_numeric($awayRaw)
+            ) {
+
+                throw new Exception(
+                    'Scores must be numbers.'
+                );
+            }
+
+
+            $homeScore =
+                (int) $homeRaw;
+
+
+            $awayScore =
+                (int) $awayRaw;
+
+
+            if (
+                $homeScore < 0
+                ||
+                $awayScore < 0
+                ||
+                $homeScore > 10
+                ||
+                $awayScore > 10
+            ) {
+
+                throw new Exception(
+                    'Invalid score.'
+                );
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | VERIFY MATCH
+            |--------------------------------------------------------------------------
+            */
+
+            $matchStmt->bind_param(
+                'i',
+                $matchId
+            );
+
+            $matchStmt->execute();
+
+            $matchResult =
+                $matchStmt
+                    ->get_result();
+
+            $match =
+                $matchResult
+                    ->fetch_assoc();
+
+
+            if (!$match) {
+
+                throw new Exception(
+                    'Match not found.'
+                );
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | SECURITY:
+            | EVERY MATCH MUST BELONG TO SAME GAMEWEEK
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                (int) $match['gameweek']
+                !== $gameweek
+            ) {
+
+                throw new Exception(
+                    'Invalid gameweek.'
+                );
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | CHECK DEADLINE AGAIN
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                isGameweekDeadlinePassed(
+                    $conn,
+                    $gameweek
+                )
+            ) {
+
+                throw new Exception(
+                    'The gameweek deadline has passed.'
+                );
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | CHECK EXISTING PREDICTION
+            |--------------------------------------------------------------------------
+            */
+
+            $existingStmt->bind_param(
+                'ii',
+                $user_id,
+                $matchId
+            );
+
+            $existingStmt->execute();
+
+            $existingResult =
+                $existingStmt
+                    ->get_result();
+
+            $existing =
+                $existingResult
+                    ->fetch_assoc();
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | DO NOT OVERWRITE EXISTING PREDICTION
+            |--------------------------------------------------------------------------
+            */
+
+            if ($existing) {
+
+                continue;
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | INSERT
+            |--------------------------------------------------------------------------
+            */
+
+            $insertStmt->bind_param(
+                'iiii',
+                $user_id,
+                $matchId,
+                $homeScore,
+                $awayScore
+            );
+
+            if (!$insertStmt->execute()) {
+
+                throw new Exception(
+                    $insertStmt->error
+                );
+            }
+        }
+
+
+        $conn->commit();
+
+
+        $matchStmt->close();
+
+        $existingStmt->close();
+
+        $insertStmt->close();
+
+
+        header(
+            'Location: predictions.php?gameweek=' .
+            $gameweek .
+            '&success=prediction_saved'
+        );
+
+        exit();
+
+
+    } catch (Throwable $e) {
+
+        $conn->rollback();
+
+
+        if (isset($matchStmt)) {
+            $matchStmt->close();
+        }
+
+        if (isset($existingStmt)) {
+            $existingStmt->close();
+        }
+
+        if (isset($insertStmt)) {
+            $insertStmt->close();
+        }
+
+
+        header(
+            'Location: predictions.php?gameweek=' .
+            $gameweek .
+            '&error=' .
+            urlencode(
+                $e->getMessage()
+            )
+        );
+
+        exit();
+    }
 }
+
+
+/*
+|--------------------------------------------------------------------------
+| SINGLE PREDICTION
+|--------------------------------------------------------------------------
+|
+| Used by other_matches.php
+|
+*/
+
+$match_id =
+    isset($_POST['match_id'])
+        ? (int) $_POST['match_id']
+        : 0;
+
+
+$predicted_home =
+    isset($_POST['predicted_home'])
+        && !is_array($_POST['predicted_home'])
+            ? trim(
+                (string)
+                $_POST['predicted_home']
+            )
+            : '';
+
+
+$predicted_away =
+    isset($_POST['predicted_away'])
+        && !is_array($_POST['predicted_away'])
+            ? trim(
+                (string)
+                $_POST['predicted_away']
+            )
+            : '';
+
+
+if ($match_id <= 0) {
+
+    die('ERROR: Invalid match ID.');
+}
+
+
+if (
+    $predicted_home === ''
+    ||
+    $predicted_away === ''
+) {
+
+    die('ERROR: Please enter both scores.');
+}
+
+
+if (
+    !is_numeric($predicted_home)
+    ||
+    !is_numeric($predicted_away)
+) {
+
+    die('ERROR: Scores must be numbers.');
+}
+
+
+$home_score =
+    (int) $predicted_home;
+
+
+$away_score =
+    (int) $predicted_away;
+
+
+if (
+    $home_score < 0
+    ||
+    $away_score < 0
+    ||
+    $home_score > 10
+    ||
+    $away_score > 10
+) {
+
+    die('ERROR: Invalid score.');
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| GET MATCH
+|--------------------------------------------------------------------------
+*/
+
+$match_stmt = $conn->prepare("
+    SELECT
+        id,
+        gameweek,
+        competition
+    FROM matches
+    WHERE id = ?
+    LIMIT 1
+");
+
+
+if (!$match_stmt) {
+
+    die(
+        'MATCH QUERY ERROR: ' .
+        htmlspecialchars($conn->error)
+    );
+}
+
+
+$match_stmt->bind_param(
+    'i',
+    $match_id
+);
+
+
+$match_stmt->execute();
+
+
+$match_result =
+    $match_stmt
+        ->get_result();
+
+
+$match =
+    $match_result
+        ->fetch_assoc();
+
+
+$match_stmt->close();
+
+
+if (!$match) {
+
+    die('ERROR: Match not found.');
+}
+
+
+$gameweek =
+    (int) $match['gameweek'];
+
+
+/*
+|--------------------------------------------------------------------------
+| GLOBAL GAMEWEEK DEADLINE CHECK
+|--------------------------------------------------------------------------
+*/
+
+if (
+    isGameweekDeadlinePassed(
+        $conn,
+        $gameweek
+    )
+) {
+
+    header(
+        'Location: other_matches.php?gameweek=' .
+        $gameweek .
+        '&error=deadline_passed'
+    );
+
+    exit();
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| CHECK EXISTING PREDICTION
+|--------------------------------------------------------------------------
+*/
+
+$check_stmt = $conn->prepare("
+    SELECT id
+    FROM score_exact
+    WHERE
+        user_id = ?
+        AND match_id = ?
+    LIMIT 1
+");
+
+
+$check_stmt->bind_param(
+    'ii',
+    $user_id,
+    $match_id
+);
+
+
+$check_stmt->execute();
+
+
+$existing =
+    $check_stmt
+        ->get_result()
+        ->fetch_assoc();
+
+
+$check_stmt->close();
+
+
+if ($existing) {
+
+    header(
+        'Location: other_matches.php?gameweek=' .
+        $gameweek .
+        '&error=already_submitted'
+    );
+
+    exit();
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| INSERT SINGLE PREDICTION
+|--------------------------------------------------------------------------
+*/
+
+$insert_stmt = $conn->prepare("
+    INSERT INTO score_exact
+    (
+        user_id,
+        match_id,
+        predicted_home,
+        predicted_away
+    )
+    VALUES (?, ?, ?, ?)
+");
+
+
+$insert_stmt->bind_param(
+    'iiii',
+    $user_id,
+    $match_id,
+    $home_score,
+    $away_score
+);
+
+
+if (!$insert_stmt->execute()) {
+
+    die(
+        'PREDICTION INSERT ERROR: ' .
+        htmlspecialchars(
+            $insert_stmt->error
+        )
+    );
+}
+
+
+$insert_stmt->close();
+
+
+header(
+    'Location: other_matches.php?gameweek=' .
+    $gameweek .
+    '&success=prediction_saved'
+);
+
+exit();
+?>

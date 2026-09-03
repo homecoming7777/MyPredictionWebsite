@@ -1,8 +1,8 @@
 <?php
-$servername = "sql111.infinityfree.com";   // XAMPP runs MySQL locally
-$username   = "if0_39901045";        // default user in XAMPP
-$password   = "m6GUofJvKjMbx";            // default password is empty
-$dbname     = "if0_39901045_fantasy";   // replace with your database name
+$servername = "localhost";   // XAMPP runs MySQL locally
+$username   = "root";        // default user in XAMPP
+$password   = "";            // default password is empty
+$dbname     = "mypredictions";   // replace with your database name
 $conn = new mysqli($servername, $username, $password, $dbname);
 
 if ($conn->connect_error) {

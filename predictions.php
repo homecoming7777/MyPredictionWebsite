@@ -1,272 +1,1189 @@
-<?php 
+<?php
+
 session_start();
+
 include 'connect.php';
+require_once 'gameweek_deadline.php';
+
+date_default_timezone_set('Africa/Casablanca');
 
 if (!isset($_SESSION['user_id'])) {
-  header("Location: login.php");
-  exit;
+    header("Location: login.php");
+    exit;
 }
 
-$user_id = $_SESSION['user_id'];
+$user_id = (int) $_SESSION['user_id'];
 
-$latest_sql = "SELECT MAX(gameweek) AS latest_gw FROM matches WHERE competition = 'Premier League'";
+function e($value)
+{
+    return htmlspecialchars(
+        (string) $value,
+        ENT_QUOTES,
+        'UTF-8'
+    );
+}
+
+$latest_sql = "
+    SELECT MAX(gameweek) AS latest_gw
+    FROM matches
+    WHERE competition = 'Premier League'
+";
+
 $latest_result = $conn->query($latest_sql);
-$latest_row = $latest_result->fetch_assoc();
-$latest_gameweek = intval($latest_row['latest_gw']);
+
+$latest_row = $latest_result
+    ? $latest_result->fetch_assoc()
+    : null;
+
+$latest_gameweek = intval(
+    $latest_row['latest_gw'] ?? 0
+);
 
 if (isset($_GET['gameweek'])) {
-  $gameweek = intval($_GET['gameweek']);
+    $gameweek = (int) $_GET['gameweek'];
 } else {
-  $gameweek = $latest_gameweek;
+    $gameweek = $latest_gameweek;
 }
 
-if ($gameweek < $latest_gameweek) {
-  header("Location: predictions.php?gameweek=" . $latest_gameweek);
-  exit();
+if ($gameweek <= 0) {
+    $gameweek = $latest_gameweek;
 }
 
-$sql = "SELECT m.*, p.predicted_home, p.predicted_away 
-        FROM matches m
-        LEFT JOIN score_exact p 
-          ON m.id = p.match_id AND p.user_id = ?
-        WHERE m.gameweek = ? AND m.competition = 'Premier League'
-        ORDER BY m.match_date ASC";
+$gameweekDeadline = getGameweekDeadline(
+    $conn,
+    $gameweek
+);
+
+$deadlinePassed = isGameweekDeadlinePassed(
+    $conn,
+    $gameweek
+);
+
+$deadlineTimestamp = gameweekDeadlineTimestamp(
+    $conn,
+    $gameweek
+);
+
+$deadlineText = $gameweekDeadline
+    ? $gameweekDeadline->format('D, d M Y • H:i')
+    : null;
+
+$sql = "
+    SELECT
+        m.*,
+        p.predicted_home,
+        p.predicted_away
+    FROM matches m
+
+    LEFT JOIN score_exact p
+        ON m.id = p.match_id
+        AND p.user_id = ?
+
+    WHERE
+        m.gameweek = ?
+        AND m.competition = 'Premier League'
+
+    ORDER BY m.match_date ASC
+";
 
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("ii", $user_id, $gameweek);
+
+$stmt->bind_param(
+    "ii",
+    $user_id,
+    $gameweek
+);
+
 $stmt->execute();
+
 $result = $stmt->get_result();
+
 ?>
+
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+
+<html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Predictions</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
+
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>
+    Predictions | Premier League
+</title>
+    <link rel="icon" type="image/jpg" href="PL_img/hadi.jpg">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.3.1/css/all.min.css" integrity="sha512-QeR2VH+lsBE5LSAe1Q5EnTBbe7XTBubt8dG93Y7gidSgdMCr8nVqKcfKAMyN96SV8KDbZVTDXChatu5G2KQGzg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<script src="https://cdn.tailwindcss.com"></script>
 
 <style>
-:root{
-  --pl-dark:#06060a;
-  --pl-purple:#37003c;
-  --pl-pink:#e90052;
-  --card:#120014;
-  --muted:#bfb7c6;
+
+body {
+
+    background-image:
+        url('PL_img/current.jpg');
+
+    background-size:
+        cover;
+
+    background-position:
+        center;
+
+    background-attachment:
+        fixed;
+
+    background-color:
+        #1c003a;
+
+    color:
+        #f7f2fa;
+
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
 }
 
+body::before {
 
-.card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
-  border: 1.5px solid rgba(233,0,82,0.12);
-  box-shadow: 0 10px 26px rgba(2,2,6,0.8), inset 0 0 12px rgba(233,0,82,0.05);
-  backdrop-filter: blur(7px);
+    content:
+        "";
+
+    position:
+        fixed;
+
+    top:
+        0;
+
+    left:
+        0;
+
+    width:
+        100%;
+
+    height:
+        100%;
+
+    background:
+        rgba(28, 0, 58, 0.65);
+
+    z-index:
+        -1;
+
+    pointer-events:
+        none;
 }
 
-.accent-border {
-  border: 2px solid rgba(233,0,82,0.25);
-  box-shadow: 0 0 30px rgba(233,0,82,0.15), inset 0 0 20px rgba(55,0,60,0.1);
-}
-
-.input-pl {
-  background: rgba(0, 0, 0, 0.35);
-  border: 2px solid #e90052;
-  color: #ffd86b;
-  font-weight: 700;
-  box-shadow: 0 0 12px rgba(233,0,82,0.2);
-}
-
-.input-pl:focus {
-  outline: none;
-  box-shadow: 0 0 20px rgba(233,0,82,0.35);
-}
-
-.match-card {
-  background: rgba(255,255,255,0.05);
-  border: 1.5px solid rgba(255,255,255,0.12);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-  transition: 0.25s;
-  backdrop-filter: blur(6px);
-}
-
-.match-card:hover {
-  transform: translateY(-4px);
-  border-color: var(--pl-pink);
-  box-shadow: 0 0 25px rgba(233,0,82,0.25);
-}
-
-.text-glow {
-  text-shadow: 0 0 12px rgba(255, 215, 80, 0.65);
-}
 </style>
 
-<body class="min-h-screen bg-[#050406] text-white">
+</head>
 
-<nav class="w-full bg-black/30 backdrop-blur-lg text-white py-4 px-6 fixed top-0 left-0 flex justify-between items-center z-50 border-b border-white/10">
-    
-    <div class="flex items-center gap-2">
-        <img src="/PL_img/PL_LOGO1.png" class="h-10 w-10" alt="">
-        <h2 class="text-lg font-extrabold text-glow">Premier League</h2>
-    </div>
+<body class="min-h-screen pb-16">
 
-    <button onclick="toggleMenu()" class="md:hidden text-white focus:outline-none">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-    </button>
+<nav
+    class="
+        fixed
+        top-0
+        left-0
+        right-0
+        z-50
+        bg-[#1c003a]/80
+        backdrop-blur-xl
+        border-b
+        border-[#ff0080]/30
+        px-5
+        md:px-8
+        py-4
+        flex
+        justify-between
+        items-center
+    "
+>
 
-    <ul class="hidden md:flex gap-6 text-sm font-semibold">
-        <li><a href="dashboard.php" class="hover:text-[var(--pl-pink)]">Dashboard</a></li>
-        <li><a href="predictions.php" class="text-[var(--pl-pink)] font-bold">Predictions</a></li>
-        <li><a href="leaderboard.php" class="hover:text-[var(--pl-pink)]">Leaderboard</a></li>
-        <li><a href="my_predictions.php" class="hover:text-[var(--pl-pink)]">My Predictions</a></li>
-    </ul>
+<a
+    href="dashboard.php"
+    class="flex items-center gap-3"
+>
+
+<div
+    class="
+        w-11
+        h-11
+        rounded-full
+        flex
+        items-center
+        justify-center
+        overflow-hidden
+    "
+>
+
+<img
+    src="PL_img/PL_LOGO1.png"
+    class="w-full h-full object-contain"
+    alt="Premier League"
+>
+
+</div>
+
+<span
+    class="
+        font-black
+        text-lg
+        text-white
+    "
+>
+    Premier League
+</span>
+
+</a>
+
+<div
+    class="
+        hidden
+        md:flex
+        items-center
+        gap-7
+        text-sm
+        font-bold
+    "
+>
+
+<a
+    href="dashboard.php"
+    class="hover:text-[#ff9900] transition-colors"
+>
+    Dashboard
+</a>
+
+<a
+    href="predictions.php"
+    class="text-[#ff0080]"
+>
+    Predictions
+</a>
+
+<a
+    href="leaderboard.php"
+    class="hover:text-[#ff9900] transition-colors"
+>
+    Leaderboard
+</a>
+
+<a
+    href="my_predictions.php"
+    class="hover:text-[#ff9900] transition-colors"
+>
+    My Predictions
+</a>
+
+</div>
+
+<button
+    onclick="toggleMenu()"
+    class="
+        md:hidden
+        text-2xl
+        px-2
+        text-white
+    "
+>
+    Menu
+</button>
+
 </nav>
 
-<div id="mobileMenu"
-     class="hidden flex-col gap-4 bg-black/40 backdrop-blur-xl text-white py-5 px-6 fixed top-16 left-0 w-full z-40 border-b border-white/10 md:hidden">
+<div
+    id="mobileMenu"
+    class="
+        hidden
+        fixed
+        top-[73px]
+        left-0
+        right-0
+        z-40
+        bg-[#1c003a]/95
+        backdrop-blur-xl
+        border-b
+        border-[#ff0080]/30
+        p-6
+    "
+>
 
-    <a href="dashboard.php" class="hover:text-[var(--pl-pink)]">Dashboard</a><br><br>
-    <a href="predictions.php" class="text-[var(--pl-pink)] font-bold">Predictions</a><br><br>
-    <a href="leaderboard.php" class="hover:text-[var(--pl-pink)]">Leaderboard</a><br><br>
-    <a href="my_predictions.php" class="hover:text-[var(--pl-pink)]">My Predictions</a>
+<div
+    class="
+        flex
+        flex-col
+        gap-5
+        font-bold
+    "
+>
+
+<a href="dashboard.php">
+    Dashboard
+</a>
+
+<a
+    href="predictions.php"
+    class="text-[#ff0080]"
+>
+    Predictions
+</a>
+
+<a href="leaderboard.php">
+    Leaderboard
+</a>
+
+<a href="my_predictions.php">
+    My Predictions
+</a>
+
+</div>
+
 </div>
 
 <script>
-function toggleMenu() {
-  document.getElementById("mobileMenu").classList.toggle("hidden");
+
+function toggleMenu()
+{
+    document
+        .getElementById('mobileMenu')
+        .classList
+        .toggle('hidden');
 }
+
 </script>
 
-<div class="h-20"></div>
+<div class="h-24"></div>
 
-<div class="w-full max-w-6xl mx-auto mt-10 mb-10 card accent-border rounded-2xl p-8">
+<main
+    class="
+        max-w-6xl
+        mx-auto
+        px-4
+    "
+>
 
-  <h1 class="text-4xl font-extrabold text-center text-yellow-400 drop-shadow-xl text-glow">
-    Premier League Predictions
-  </h1>
+<div
+    class="
+        flex
+        flex-col
+        md:flex-row
+        justify-between
+        items-center
+        gap-6
+        mb-8
+    "
+>
 
-  <div class="flex justify-center mt-3 mb-8">
-    <img src="/PL_img/PL_LOGO1.png" class="h-20 w-20 drop-shadow-xl">
-  </div>
+<div
+    class="
+        flex
+        items-center
+        gap-4
+    "
+>
 
-  <form method="GET" class="text-center mb-8">
-    <label for="gameweek" class="font-semibold text-yellow-300 text-lg">Select Gameweek</label><br>
-    <select id="gameweek" name="gameweek" 
-            class="mt-3 input-pl rounded-lg px-6 py-2 text-sm transition"
-            onchange="this.form.submit()">
-      <?php
-      $weeks = $conn->query("SELECT DISTINCT gameweek FROM matches WHERE competition = 'Premier League' ORDER BY gameweek ASC");
-      while ($w = $weeks->fetch_assoc()):
-        $gw = intval($w['gameweek']);
-        $selected = ($gw == $gameweek) ? 'selected' : '';
-        $disabled = ($gw < $latest_gameweek) ? 'disabled' : '';
-        echo "<option value='{$gw}' $selected $disabled>Gameweek {$gw}</option>";
-      endwhile;
-      ?>
-    </select>
-  </form>
+<div
+    class="
+        w-16
+        h-16
+        rounded-full
+        p-2
+        flex
+        items-center
+        justify-center
+    "
+>
 
-  <div id="countdown" class="text-center text-lg font-bold text-yellow-300 mb-8"></div>
+<img
+    src="PL_img/PL_LOGO1.png"
+    class="w-full h-full object-contain"
+    alt="Premier League"
+>
 
-  <?php if ($result->num_rows === 0): ?>
-    <p class="text-center text-gray-300">✔️ No matches for this gameweek.</p>
-
-  <?php else: ?>
-    <form id="predictionsForm" action="insert_prediction.php" method="POST" class="space-y-7">
-
-      <?php while ($match = $result->fetch_assoc()): ?>
-
-        <div class="text-xs text-gray-400 mb-1 text-center">
-          <?= date('Y/m/d H:i', strtotime($match['match_date'])) ?>
-        </div>
-
-        <div class="match-card rounded-xl p-2 flex items-center justify-between gap-10">
-
-          <div class="flex items-center gap-5 w-1/3 justify-end">
-            <span class="text-xs text-gray-400">(A)</span>
-            <span class="hidden md:flex font-bold text-lg"><?= htmlspecialchars($match['away_team']) ?></span>
-            <img src="/PL_Teams/<?= htmlspecialchars($match['away_team_pic']) ?>" class="w-16 h-16 rounded shadow-md">
-          </div>
-
-          <div class="flex items-center justify-center gap-3 w-1/3">
-
-            <input type="number" 
-                   name="predicted_away[]" 
-                   value="<?= $match['predicted_away'] ?>" 
-                   class="w-14 input-pl rounded-lg text-center"
-                   min="0" max="10"
-                   <?= $match['predicted_away'] !== null ? 'readonly' : 'required' ?>>
-
-            <span class="text-pink-400 font-bold text-xl">-</span>
-
-            <input type="number" 
-                   name="predicted_home[]" 
-                   value="<?= $match['predicted_home'] ?>" 
-                   class="w-14 input-pl rounded-lg text-center"
-                   min="0" max="10"
-                   <?= $match['predicted_home'] !== null ? 'readonly' : 'required' ?>>
-          </div>
-
-          <div class="flex items-center gap-5 w-1/3">
-            <img src="/PL_Teams/<?= htmlspecialchars($match['home_team_pic']) ?>" class="w-16 h-16 rounded shadow-md">
-            <span class="hidden md:flex font-bold text-lg"><?= htmlspecialchars($match['home_team']) ?></span>
-            <span class="text-xs text-gray-400">(H)</span>
-          </div>
-
-          <input type="hidden" name="match_id[]" value="<?= $match['id'] ?>">
-
-        </div>
-
-      <?php endwhile; ?>
-
-      <div class="text-center mt-10">
-        <button type="submit" 
-                class="bg-pink-500 hover:bg-pink-600 px-12 py-3 rounded-xl font-extrabold text-lg shadow-lg shadow-pink-500/40 transition">
-          Submit Predictions
-        </button>
-      </div>
-
-      <input type="hidden" name="user_id" value="<?= $user_id ?>">
-    </form>
-
-    <div class="text-center mt-10">
-      <a href="other_matches.php"
-         class="inline-block bg-yellow-500 hover:bg-yellow-600 text-black font-semibold px-5 py-2 rounded-xl shadow-lg transition">
-         ⚽ See Other Leagues
-      </a>
-    </div>
-
-    <div class="text-center mt-4">
-      <a href="my_predictions.php" class="text-yellow-300 underline">Your Predictions</a>
-    </div>
-
-  <?php endif; ?>
 </div>
 
+<div>
+
+<div
+    class="
+        text-[#ff0080]
+        text-sm
+        font-black
+        uppercase
+        tracking-widest
+    "
+>
+    Make Your Picks
+</div>
+
+<h1
+    class="
+        text-3xl
+        md:text-5xl
+        font-black
+        text-white
+    "
+>
+    Predictions
+</h1>
+
+<p
+    class="
+        text-gray-300
+        mt-1
+    "
+>
+
+Premier League
+
+<span
+    class="text-gray-500"
+>
+    •
+</span>
+
+Gameweek <?= e($gameweek) ?>
+
+</p>
+
+</div>
+
+</div>
+
+<form
+    method="GET"
+    class="
+        flex
+        items-center
+        gap-3
+    "
+>
+
+<label
+    for="gameweek"
+    class="
+        text-sm
+        font-bold
+        text-gray-300
+    "
+>
+    Gameweek
+</label>
+
+<select
+    id="gameweek"
+    name="gameweek"
+    onchange="this.form.submit()"
+    class="
+        bg-[#1c003a]
+        border
+        border-[#ff0080]
+        text-white
+        rounded-xl
+        px-4
+        py-3
+        font-bold
+        outline-none
+        cursor-pointer
+    "
+>
+
+<?php
+
+$weeks = $conn->query("
+    SELECT DISTINCT gameweek
+    FROM matches
+    WHERE competition = 'Premier League'
+    ORDER BY gameweek ASC
+");
+
+while ($w = $weeks->fetch_assoc()):
+
+    $gw = (int) $w['gameweek'];
+
+    $selected =
+        ($gw === $gameweek)
+            ? 'selected'
+            : '';
+
+?>
+
+<option
+    value="<?= $gw ?>"
+    <?= $selected ?>
+>
+    Gameweek <?= $gw ?>
+</option>
+
+<?php endwhile; ?>
+
+</select>
+
+</form>
+
+</div>
+
+<div
+    class="
+        bg-[#1c003a]/85
+        backdrop-blur-md
+        border
+        border-[#ff0080]/30
+        shadow-[0_0_40px_rgba(233,0,82,0.25)]
+        rounded-3xl
+        p-6
+        md:p-8
+        mb-8
+    "
+>
+
+<?php if ($deadlinePassed): ?>
+
+<div
+    class="
+        max-w-2xl
+        mx-auto
+        text-center
+        py-16
+    "
+>
+
+<div
+    class="
+        w-24
+        h-24
+        mx-auto
+        mb-6
+        rounded-full
+        bg-red-500/20
+        border
+        border-red-500/40
+        flex
+        items-center
+        justify-center
+        text-5xl
+    "
+>
+    
+</div>
+
+<h2
+    class="
+        text-3xl
+        md:text-4xl
+        font-black
+        text-red-400
+        mb-4
+    "
+>
+    Prediction Deadline Has Passed
+</h2>
+
+<p
+    class="
+        text-gray-300
+        text-lg
+        leading-relaxed
+    "
+>
+
+The prediction deadline for
+
+<strong class="text-white">
+    Gameweek <?= e($gameweek) ?>
+</strong>
+
+has passed.
+
+</p>
+
+<?php if ($deadlineText): ?>
+
+<p
+    class="
+        text-gray-400
+        mt-4
+    "
+>
+
+Deadline:
+
+<strong class="text-white">
+    <?= e($deadlineText) ?>
+</strong>
+
+</p>
+
+<?php endif; ?>
+
+<p
+    class="
+        text-gray-500
+        mt-6
+    "
+>
+
+You can no longer submit predictions for this gameweek.
+
+</p>
+
+<a
+    href="my_predictions.php"
+    class="
+        inline-flex
+        mt-8
+        bg-[#ff0080]
+        hover:bg-[#ff9900]
+        text-white
+        px-7
+        py-3
+        rounded-xl
+        font-black
+        transition
+    "
+>
+    View My Predictions
+</a>
+
+</div>
+
+<?php else: ?>
+
+<div
+    id="countdown"
+    class="
+        bg-[#ff9900]/20
+        border
+        border-[#ff9900]/30
+        rounded-2xl
+        p-4
+        text-center
+        text-[#ff9900]
+        font-bold
+        text-lg
+        mb-8
+    "
+>
+
+<?php if ($deadlineText): ?>
+
+Deadline:
+
+<?= e($deadlineText) ?>
+
+<?php else: ?>
+
+Predictions are currently open.
+
+<?php endif; ?>
+
+</div>
+
+<?php if ($result->num_rows === 0): ?>
+
+<p
+    class="
+        text-center
+        text-gray-300
+        text-lg
+    "
+>
+    No matches for this gameweek.
+</p>
+
+<?php else: ?>
+
+<form
+    id="predictionsForm"
+    action="insert_prediction.php"
+    method="POST"
+    class="space-y-7"
+>
+
+<input
+    type="hidden"
+    name="prediction_type"
+    value="multiple"
+>
+
+<input
+    type="hidden"
+    name="gameweek"
+    value="<?= (int) $gameweek ?>"
+>
+
+<?php while ($match = $result->fetch_assoc()): ?>
+
+<?php
+
+$home_logo =
+    ltrim(
+        $match['home_team_pic'] ?? '',
+        '/'
+    );
+
+$away_logo =
+    ltrim(
+        $match['away_team_pic'] ?? '',
+        '/'
+    );
+
+?>
+
+<div
+    class="
+        flex
+        flex-col
+        md:grid
+        md:grid-cols-[1fr_1.2fr_1fr]
+        rounded-2xl
+        overflow-hidden
+        shadow-2xl
+        border
+        border-[#ff0080]/20
+        max-w-[650px]
+        mx-auto
+        mb-5
+    "
+>
+
+<div
+    class="
+        bg-gradient-to-br
+        from-[#1c003a]
+        to-[#4a0060]
+        flex
+        flex-row
+        items-center
+        justify-center
+        gap-4
+        md:flex-col
+        md:gap-0
+        p-4
+        md:p-5
+        text-white
+    "
+>
+
+<img
+    src="<?= e($home_logo) ?>"
+    alt="<?= e($match['home_team']) ?>"
+    class="
+        w-[60px]
+        h-[60px]
+        md:w-[60px]
+        md:h-[60px]
+        md:mb-2.5
+    "
+    onerror="this.src='PL_img/default-team.png';"
+>
+
+<div class="text-center">
+
+<div
+    class="
+        font-extrabold
+        text-lg
+    "
+>
+    <?= e($match['home_team']) ?>
+</div>
+
+<div
+    class="
+        text-[10px]
+        font-black
+        uppercase
+        tracking-wider
+        opacity-90
+        mt-0.5
+        md:mt-1.5
+        text-[#ff9900]
+    "
+>
+    HOME
+</div>
+
+</div>
+
+</div>
+
+<div
+    class="
+        bg-[#ffffff]
+        flex
+        flex-col
+        items-center
+        justify-center
+        gap-2
+        p-5
+        border-y
+        border-gray-200
+        md:border-x
+    "
+>
+
+<div
+    class="
+        text-xs
+        font-bold
+        text-black
+    "
+>
+
+<?= date(
+    'D, d M Y • H:i',
+    strtotime($match['match_date'])
+) ?>
+
+</div>
+
+<div
+    class="
+        flex
+        items-center
+        justify-center
+        gap-2.5
+    "
+>
+
+<input
+    type="number"
+    name="predicted_home[]"
+    value="<?= e($match['predicted_home'] ?? '') ?>"
+    class="
+        bg-transparent
+        border-b-4
+        border-[#e90052]
+        text-[#e90052]
+        text-4xl
+        font-black
+        w-[70px]
+        text-center
+        outline-none
+        focus:border-[#ff9900]
+        focus:text-[#ff9900]
+        read-only:border-gray-300
+        read-only:text-gray-400
+        appearance-none
+    "
+    min="0"
+    max="10"
+    <?= $match['predicted_home'] !== null ? 'readonly' : 'required' ?>
+>
+
+<span
+    class="
+        text-4xl
+        font-black
+        text-[#e90052]
+    "
+>
+    -
+</span>
+
+<input
+    type="number"
+    name="predicted_away[]"
+    value="<?= e($match['predicted_away'] ?? '') ?>"
+    class="
+        bg-transparent
+        border-b-4
+        border-[#e90052]
+        text-[#e90052]
+        text-4xl
+        font-black
+        w-[70px]
+        text-center
+        outline-none
+        focus:border-[#ff9900]
+        focus:text-[#ff9900]
+        read-only:border-gray-300
+        read-only:text-gray-400
+        appearance-none
+    "
+    min="0"
+    max="10"
+    <?= $match['predicted_away'] !== null ? 'readonly' : 'required' ?>
+>
+
+</div>
+
+</div>
+
+<div
+    class="
+        bg-gradient-to-br
+        from-[#e90052]
+        to-[#ff4b2b]
+        flex
+        flex-row
+        items-center
+        justify-center
+        gap-4
+        md:flex-col
+        md:gap-0
+        p-4
+        md:p-5
+        text-white
+    "
+>
+
+<img
+    src="<?= e($away_logo) ?>"
+    alt="<?= e($match['away_team']) ?>"
+    class="
+        w-[60px]
+        h-[60px]
+        md:w-[60px]
+        md:h-[60px]
+        md:mb-2.5
+    "
+    onerror="this.src='PL_img/default-team.png';"
+>
+
+<div class="text-center">
+
+<div
+    class="
+        font-extrabold
+        text-lg
+    "
+>
+    <?= e($match['away_team']) ?>
+</div>
+
+<div
+    class="
+        text-[10px]
+        font-black
+        uppercase
+        tracking-wider
+        opacity-90
+        mt-0.5
+        md:mt-1.5
+        text-[#1c003a]
+    "
+>
+    AWAY
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<input
+    type="hidden"
+    name="match_id[]"
+    value="<?= (int) $match['id'] ?>"
+>
+
+<?php endwhile; ?>
+
+<div class="text-center mt-8">
+
+<button
+    type="submit"
+    class="
+        bg-gradient-to-r
+        from-[#e90052]
+        to-[#ff9900]
+        hover:from-[#ff9900]
+        hover:to-[#e90052]
+        text-white
+        px-12
+        py-4
+        rounded-xl
+        font-black
+        text-lg
+        shadow-lg
+        shadow-[#e90052]/50
+        transition
+        transform
+        hover:scale-105
+    "
+>
+    Submit Predictions
+</button>
+
+</div>
+
+</form>
+
+<?php endif; ?>
+
+<?php endif; ?>
+
+<div
+    class="
+        text-center
+        mt-8
+        flex
+        flex-col
+        sm:flex-row
+        justify-center
+        gap-4
+    "
+>
+
+<a
+    href="other_matches.php?gameweek=<?= (int) $gameweek ?>"
+    class="
+        inline-flex
+        items-center
+        justify-center
+        gap-2
+        bg-[#ff9900]
+        hover:bg-[#e90052]
+        text-white
+        font-black
+        px-6
+        py-3
+        rounded-xl
+        transition
+    "
+>
+    Other Leagues
+</a>
+
+<a
+    href="my_predictions.php"
+    class="
+        inline-flex
+        items-center
+        justify-center
+        gap-2
+        bg-white/10
+        hover:bg-white/20
+        border
+        border-white/20
+        text-white
+        px-6
+        py-3
+        rounded-xl
+        font-black
+        transition
+    "
+>
+    My Predictions
+</a>
+
+</div>
+
+</div>
+
+<div
+    class="
+        text-center
+        text-gray-400
+        text-sm
+        mt-10
+    "
+>
+
+Premier League Prediction
+
+•
+
+Gameweek <?= e($gameweek) ?>
+
+<br>
+
+<?php if ($deadlineText): ?>
+
+Prediction deadline:
+
+<?= e($deadlineText) ?>
+
+<?php else: ?>
+
+Make your picks before the deadline.
+
+<?php endif; ?>
+
+</div>
+
+</main>
+
+<?php if (!$deadlinePassed && $deadlineTimestamp): ?>
+
 <script>
-const deadline = new Date("2025-12-13T15:00:00").getTime();
-const x = setInterval(() => {
-  const now = new Date().getTime();
-  const distance = deadline - now;
 
-  if (distance <= 0) {
-    clearInterval(x);
-    document.getElementById("countdown").innerHTML = "⏰ انتهى وقت التوقعات!";
-    document.getElementById("predictionsForm").style.display = "none";
-    return;
-  }
+const deadline =
+    <?= (int) $deadlineTimestamp ?> * 1000;
 
-  const d = Math.floor(distance / (1000 * 60 * 60 * 24));
-  const h = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const m = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
-  const s = Math.floor((distance % (1000 * 60)) / 1000);
+const countdownElement =
+    document.getElementById('countdown');
 
-  document.getElementById("countdown").innerHTML =
-    `${d}d ${h}h ${m}m ${s}s left`;
-}, 1000);
+const timer =
+    setInterval(() =>
+    {
+
+        const now =
+            new Date().getTime();
+
+        const distance =
+            deadline - now;
+
+        if (distance <= 0)
+        {
+
+            clearInterval(timer);
+
+            window.location.reload();
+
+            return;
+        }
+
+        const d =
+            Math.floor(
+                distance /
+                (1000 * 60 * 60 * 24)
+            );
+
+        const h =
+            Math.floor(
+                (
+                    distance %
+                    (1000 * 60 * 60 * 24)
+                ) /
+                (1000 * 60 * 60)
+            );
+
+        const m =
+            Math.floor(
+                (
+                    distance %
+                    (1000 * 60 * 60)
+                ) /
+                (1000 * 60)
+            );
+
+        const s =
+            Math.floor(
+                (
+                    distance %
+                    (1000 * 60)
+                ) /
+                1000
+            );
+
+        countdownElement.innerHTML =
+            `${d}d ${h}h ${m}m ${s}s left until deadline`;
+
+    }, 1000);
+
 </script>
+
+<?php endif; ?>
 
 </body>
+
 </html>
