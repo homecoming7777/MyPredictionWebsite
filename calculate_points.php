@@ -4,6 +4,7 @@ session_start();
 
 require_once 'connect.php';
 require_once 'points_helper.php';
+require_once 'ships_helper.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");

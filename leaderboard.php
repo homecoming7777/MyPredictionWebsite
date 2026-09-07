@@ -120,14 +120,6 @@ $leaderboard_sql = "
     LEFT JOIN score_exact p
         ON u.id = p.user_id
 
-    LEFT JOIN matches m
-        ON m.id = p.match_id
-
-    LEFT JOIN double_gameweek dg
-        ON dg.user_id = p.user_id
-        AND dg.match_id = p.match_id
-        AND dg.gameweek = m.gameweek
-
     GROUP BY
         u.id,
         u.username,
@@ -213,14 +205,6 @@ $total_points_result = $conn->query("
         COALESCE(SUM(COALESCE(p.points,0)),0) AS total_points
 
     FROM score_exact p
-
-    INNER JOIN matches m
-        ON m.id = p.match_id
-
-    LEFT JOIN double_gameweek dg
-        ON dg.user_id = p.user_id
-        AND dg.match_id = p.match_id
-        AND dg.gameweek = m.gameweek
 
 ");
 
@@ -416,7 +400,7 @@ function rankBadge($rank)
     name="viewport"
     content="width=device-width, initial-scale=1.0"
 >
-
+<link rel="icon" type="image/jpg" href="PL_img/hadi.jpg">
 <title>
     Leaderboard | Premier League
 </title>

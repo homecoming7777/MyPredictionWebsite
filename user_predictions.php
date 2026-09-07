@@ -2,577 +2,88 @@
 
 session_start();
 include 'connect.php';
+require_once 'gameweek_deadline.php';
+
+date_default_timezone_set('Africa/Casablanca');
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
-    exit();
+    exit;
 }
 
-$current_user_id = (int) $_SESSION['user_id'];
-
+$viewer_id = (int) $_SESSION['user_id'];
 
 /*
 |--------------------------------------------------------------------------
-| CHECK TARGET USER
-|--------------------------------------------------------------------------
-*/
-
-if (!isset($_GET['user_id'])) {
-    header("Location: my_predictions.php");
-    exit();
-}
-
-$target_user_id = (int) $_GET['user_id'];
-
-if ($target_user_id <= 0) {
-    header("Location: my_predictions.php");
-    exit();
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| GET TARGET USER
-|--------------------------------------------------------------------------
-*/
-
-$user_stmt = $conn->prepare("
-    SELECT id, username, avatar
-    FROM users
-    WHERE id = ?
-    LIMIT 1
-");
-
-if (!$user_stmt) {
-    die("Database error: " . htmlspecialchars($conn->error));
-}
-
-$user_stmt->bind_param(
-    "i",
-    $target_user_id
-);
-
-$user_stmt->execute();
-
-$user_result = $user_stmt->get_result();
-
-$target_user = $user_result->fetch_assoc();
-
-$user_stmt->close();
-
-
-if (!$target_user) {
-    header("Location: my_predictions.php");
-    exit();
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| GET GAMEWEEKS
-|--------------------------------------------------------------------------
-*/
-
-$gameweeks = [];
-
-$weeks_result = $conn->query("
-    SELECT DISTINCT gameweek
-    FROM matches
-    WHERE competition = 'Premier League'
-    ORDER BY gameweek ASC
-");
-
-if ($weeks_result) {
-
-    while ($row = $weeks_result->fetch_assoc()) {
-
-        $gameweeks[] = (int) $row['gameweek'];
-
-    }
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| GET LATEST GAMEWEEK
-|--------------------------------------------------------------------------
-*/
-
-$latest_gameweek = 1;
-
-$latest_result = $conn->query("
-    SELECT MAX(gameweek) AS latest_gw
-    FROM matches
-    WHERE competition = 'Premier League'
-");
-
-if ($latest_result) {
-
-    $latest_row = $latest_result->fetch_assoc();
-
-    $latest_gameweek = (int) (
-        $latest_row['latest_gw'] ?? 1
-    );
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| SELECTED GAMEWEEK
-|--------------------------------------------------------------------------
-*/
-
-if (isset($_GET['gameweek'])) {
-
-    $gameweek = (int) $_GET['gameweek'];
-
-} else {
-
-    $gameweek = $latest_gameweek;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| VERIFY GAMEWEEK
-|--------------------------------------------------------------------------
-*/
-
-if (
-    !empty($gameweeks)
-    &&
-    !in_array(
-        $gameweek,
-        $gameweeks,
-        true
-    )
-) {
-
-    $gameweek = $latest_gameweek;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| GET MATCHES FOR THIS GAMEWEEK
-|--------------------------------------------------------------------------
-|
-| IMPORTANT:
-|
-| We first get the matches because the first match
-| determines the deadline.
-|
-|--------------------------------------------------------------------------
-*/
-
-$matches = [];
-
-$matches_stmt = $conn->prepare("
-    SELECT
-        m.id,
-        m.home_team,
-        m.away_team,
-        m.match_date,
-        m.home_score,
-        m.away_score,
-        m.gameweek,
-        m.competition,
-
-        p.predicted_home,
-        p.predicted_away,
-        p.points
-
-    FROM matches m
-
-    LEFT JOIN score_exact p
-        ON p.match_id = m.id
-        AND p.user_id = ?
-
-    WHERE
-        m.gameweek = ?
-        AND m.competition = 'Premier League'
-
-    ORDER BY
-        m.match_date ASC
-");
-
-if (!$matches_stmt) {
-    die("Database error: " . htmlspecialchars($conn->error));
-}
-
-$matches_stmt->bind_param(
-    "ii",
-    $target_user_id,
-    $gameweek
-);
-
-$matches_stmt->execute();
-
-$matches_result = $matches_stmt->get_result();
-
-while ($row = $matches_result->fetch_assoc()) {
-
-    $matches[] = $row;
-
-}
-
-$matches_stmt->close();
-
-
-/*
-|--------------------------------------------------------------------------
-| DEADLINE
-|--------------------------------------------------------------------------
-|
-| First match of the gameweek.
-|
-|--------------------------------------------------------------------------
-*/
-
-$deadline = null;
-
-if (!empty($matches)) {
-
-    $deadline = strtotime(
-        $matches[0]['match_date']
-    );
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| SERVER-SIDE SECURITY
-|--------------------------------------------------------------------------
-|
-| Nobody can see another user's predictions
-| before the deadline.
-|
-|--------------------------------------------------------------------------
-*/
-
-$is_locked = false;
-
-if (
-    $deadline !== null
-    &&
-    time() >= $deadline
-) {
-
-    $is_locked = true;
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| IMPORTANT SECURITY CHECK
-|--------------------------------------------------------------------------
-*/
-
-if (!$is_locked) {
-
-    header(
-        "Location: my_predictions.php?gameweek="
-        . $gameweek
-    );
-
-    exit();
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| GET DOUBLE PICK
-|--------------------------------------------------------------------------
-|
-| We only use this to correctly calculate/display
-| the points of the selected user's predictions.
-|
-|--------------------------------------------------------------------------
-*/
-
-$double_match_id = null;
-
-$double_stmt = $conn->prepare("
-    SELECT match_id
-    FROM double_gameweek
-    WHERE
-        user_id = ?
-        AND gameweek = ?
-    LIMIT 1
-");
-
-if ($double_stmt) {
-
-    $double_stmt->bind_param(
-        "ii",
-        $target_user_id,
-        $gameweek
-    );
-
-    $double_stmt->execute();
-
-    $double_result =
-        $double_stmt->get_result();
-
-    $double_row =
-        $double_result->fetch_assoc();
-
-    if ($double_row) {
-
-        $double_match_id =
-            (int) $double_row['match_id'];
-
-    }
-
-    $double_stmt->close();
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| TOTAL POINTS
-|--------------------------------------------------------------------------
-*/
-
-$total_points = 0;
-
-$total_stmt = $conn->prepare("
-    SELECT
-        COALESCE(
-            SUM(
-                CASE
-                    WHEN dg.match_id IS NOT NULL
-                    THEN COALESCE(p.points, 0) * 2
-                    ELSE COALESCE(p.points, 0)
-                END
-            ),
-            0
-        ) AS total_points
-
-    FROM score_exact p
-
-    INNER JOIN matches m
-        ON m.id = p.match_id
-
-    LEFT JOIN double_gameweek dg
-        ON dg.user_id = p.user_id
-        AND dg.match_id = p.match_id
-        AND dg.gameweek = m.gameweek
-
-    WHERE
-        p.user_id = ?
-        AND m.gameweek = ?
-        AND m.competition = 'Premier League'
-");
-
-if ($total_stmt) {
-
-    $total_stmt->bind_param(
-        "ii",
-        $target_user_id,
-        $gameweek
-    );
-
-    $total_stmt->execute();
-
-    $total_row =
-        $total_stmt
-        ->get_result()
-        ->fetch_assoc();
-
-    $total_points =
-        (int) (
-            $total_row['total_points']
-            ?? 0
-        );
-
-    $total_stmt->close();
-
-}
-
-
-/*
-|--------------------------------------------------------------------------
-| TEAM LOGOS
+| TEAM LOGO HELPER (identical to other_matches.php, kept in sync)
 |--------------------------------------------------------------------------
 */
 
 function teamLogo($teamName)
 {
     $teamName = strtolower(trim($teamName));
-
-    $teamName = preg_replace(
-        '/\s+/',
-        ' ',
-        $teamName
-    );
+    $teamName = preg_replace('/\s+/', ' ', $teamName);
 
     $logos = [
-
-        'arsenal'
-            => 'arsenal.png',
-
-        'aston villa'
-            => 'aston-villa.png',
-
-        'bournemouth'
-            => 'bournemouth.png',
-
-        'brentford'
-            => 'brentford.png',
-
-        'brighton'
-            => 'brighton.png',
-
-        'brighton & hove albion'
-            => 'brighton.png',
-
-        'chelsea'
-            => 'chelsea.png',
-
-        'coventry'
-            => 'coventry-city.png',
-
-        'coventry city'
-            => 'coventry-city.png',
-
-        'crystal palace'
-            => 'crystal-palace.png',
-
-        'everton'
-            => 'everton.png',
-
-        'fulham'
-            => 'fulham.png',
-
-        'hull'
-            => 'hull-city.png',
-
-        'hull city'
-            => 'hull-city.png',
-
-        'ipswich'
-            => 'ipswich-town.png',
-
-        'ipswich town'
-            => 'ipswich-town.png',
-
-        'leeds'
-            => 'leeds.png',
-
-        'leeds united'
-            => 'leeds.png',
-
-        'liverpool'
-            => 'liverpool.png',
-
-        'manchester city'
-            => 'manchester-city.png',
-
-        'man city'
-            => 'manchester-city.png',
-
-        'manchester united'
-            => 'manchester-united.png',
-
-        'man united'
-            => 'manchester-united.png',
-
-        'man utd'
-            => 'manchester-united.png',
-
-        'newcastle'
-            => 'newcastle.png',
-
-        'newcastle united'
-            => 'newcastle.png',
-
-        'nottingham forest'
-            => 'nottingham-forest.png',
-
-        'nottingham'
-            => 'nottingham-forest.png',
-
-        'sunderland'
-            => 'sunderland.png',
-
-        'tottenham'
-            => 'tottenham.png',
-
-        'tottenham hotspur'
-            => 'tottenham.png',
-
-        'spurs'
-            => 'tottenham.png',
-
+        'arsenal' => 'arsenal.png',
+        'aston villa' => 'aston-villa.png',
+        'bournemouth' => 'bournemouth.png',
+        'brentford' => 'brentford.png',
+        'brighton' => 'brighton.png',
+        'brighton & hove albion' => 'brighton.png',
+        'chelsea' => 'chelsea.png',
+        'coventry' => 'coventry-city.png',
+        'coventry city' => 'coventry-city.png',
+        'crystal palace' => 'crystal-palace.png',
+        'everton' => 'everton.png',
+        'fulham' => 'fulham.png',
+        'hull' => 'hull-city.png',
+        'hull city' => 'hull-city.png',
+        'ipswich' => 'ipswich-town.png',
+        'ipswich town' => 'ipswich-town.png',
+        'leeds' => 'leeds.png',
+        'leeds united' => 'leeds.png',
+        'liverpool' => 'liverpool.png',
+        'manchester city' => 'manchester-city.png',
+        'man city' => 'manchester-city.png',
+        'manchester united' => 'manchester-united.png',
+        'man united' => 'manchester-united.png',
+        'man utd' => 'manchester-united.png',
+        'newcastle' => 'newcastle.png',
+        'newcastle united' => 'newcastle.png',
+        'nottingham forest' => 'nottingham-forest.png',
+        'nottingham' => 'nottingham-forest.png',
+        'sunderland' => 'sunderland.png',
+        'tottenham' => 'tottenham.png',
+        'tottenham hotspur' => 'tottenham.png',
+        'spurs' => 'tottenham.png',
     ];
 
     if (isset($logos[$teamName])) {
-
         $file = $logos[$teamName];
-
-        $fullPath =
-            __DIR__
-            . DIRECTORY_SEPARATOR
-            . 'PL_Teams'
-            . DIRECTORY_SEPARATOR
-            . $file;
+        $fullPath = __DIR__ . DIRECTORY_SEPARATOR . 'PL_Teams' . DIRECTORY_SEPARATOR . $file;
 
         if (file_exists($fullPath)) {
-
             return 'PL_Teams/' . $file;
-
         }
-
     }
 
-
-    $safeName = preg_replace(
-        '/[^a-z0-9]+/',
-        '-',
-        $teamName
-    );
-
-    $safeName = trim(
-        $safeName,
-        '-'
-    );
-
+    $safeName = preg_replace('/[^a-z0-9]+/', '-', $teamName);
+    $safeName = trim($safeName, '-');
 
     $possibleFiles = [
-
         $safeName . '.png',
         $safeName . '.jpg',
         $safeName . '.jpeg',
-
     ];
 
-
     foreach ($possibleFiles as $file) {
-
-        $fullPath =
-            __DIR__
-            . DIRECTORY_SEPARATOR
-            . 'PL_Teams'
-            . DIRECTORY_SEPARATOR
-            . $file;
+        $fullPath = __DIR__ . DIRECTORY_SEPARATOR . 'PL_Teams' . DIRECTORY_SEPARATOR . $file;
 
         if (file_exists($fullPath)) {
-
             return 'PL_Teams/' . $file;
-
         }
-
     }
-
 
     return null;
 }
@@ -580,83 +91,112 @@ function teamLogo($teamName)
 
 /*
 |--------------------------------------------------------------------------
-| POINT BADGE
+| TARGET USER
 |--------------------------------------------------------------------------
 */
 
-function pointBadge($points, $isDouble = false)
-{
-    if (
-        $points === null
-        ||
-        $points === ''
-    ) {
+$target_user_id = isset($_GET['user_id']) ? (int) $_GET['user_id'] : 0;
 
-        return '
-            <span class="
-                inline-flex
-                items-center
-                justify-center
-                min-w-[48px]
-                px-3
-                py-1.5
-                rounded-full
-                bg-gray-700
-                text-gray-300
-                font-black
-            ">
-                -
-            </span>
-        ';
-
-    }
-
-
-    $points = (int) $points;
-
-    $displayPoints =
-        $isDouble
-        ? $points * 2
-        : $points;
-
-
-    if ($points >= 3) {
-
-        $class =
-            'bg-green-400 text-black';
-
-    } elseif ($points === 1) {
-
-        $class =
-            'bg-yellow-400 text-black';
-
-    } else {
-
-        $class =
-            'bg-red-500 text-white';
-
-    }
-
-
-    return '
-        <span class="
-            inline-flex
-            items-center
-            justify-center
-            min-w-[48px]
-            px-3
-            py-1.5
-            rounded-full
-            font-black
-            ' . $class . '
-        ">
-            '
-            . ($isDouble ? '⭐ ' : '')
-            . $displayPoints .
-        '
-        </span>
-    ';
+if ($target_user_id <= 0) {
+    header("Location: other_matches.php");
+    exit;
 }
+
+$user_stmt = $conn->prepare("SELECT id, username FROM users WHERE id = ? LIMIT 1");
+$user_stmt->bind_param("i", $target_user_id);
+$user_stmt->execute();
+$target_user = $user_stmt->get_result()->fetch_assoc();
+$user_stmt->close();
+
+if (!$target_user) {
+    header("Location: other_matches.php");
+    exit;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| GAMEWEEKS (Other Leagues only, same scope as other_matches.php)
+|--------------------------------------------------------------------------
+*/
+
+$gw_sql = "
+    SELECT DISTINCT gameweek
+    FROM matches
+    WHERE competition <> 'Premier League'
+    ORDER BY gameweek ASC
+";
+
+$gw_result = $conn->query($gw_sql);
+
+$last_gw_sql = "
+    SELECT MAX(gameweek) AS last_gw
+    FROM matches
+    WHERE competition <> 'Premier League'
+";
+
+$last_gw_result = $conn->query($last_gw_sql);
+$last_gw_row = $last_gw_result->fetch_assoc();
+$last_gameweek = (int)($last_gw_row['last_gw'] ?? 1);
+
+$selected_gw = isset($_GET['gameweek']) ? (int)$_GET['gameweek'] : $last_gameweek;
+
+
+/*
+|--------------------------------------------------------------------------
+| DEADLINE CHECK
+|--------------------------------------------------------------------------
+|
+| Other users' predictions only ever become visible once the deadline for
+| that gameweek has passed - enforced here too (not just on the page that
+| links here) so a direct URL can't be used to peek early.
+|
+*/
+
+$deadlinePassed = isGameweekDeadlinePassed(
+    $conn,
+    $selected_gw
+);
+
+if (!$deadlinePassed) {
+    header("Location: other_matches.php?gameweek=" . $selected_gw);
+    exit;
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| THAT USER'S PREDICTIONS (read-only)
+|--------------------------------------------------------------------------
+*/
+
+$sql = "
+    SELECT
+        m.*,
+        se.predicted_home,
+        se.predicted_away,
+        se.points
+    FROM matches m
+    LEFT JOIN score_exact se
+        ON m.id = se.match_id
+        AND se.user_id = ?
+    WHERE
+        m.competition <> 'Premier League'
+        AND m.gameweek = ?
+    ORDER BY
+        m.competition,
+        m.match_date ASC
+";
+
+$stmt = $conn->prepare($sql);
+
+if (!$stmt) {
+    die("Database error: " . htmlspecialchars($conn->error));
+}
+
+$stmt->bind_param("ii", $target_user_id, $selected_gw);
+$stmt->execute();
+$result = $stmt->get_result();
 
 ?>
 
@@ -668,923 +208,357 @@ function pointBadge($points, $isDouble = false)
 
 <meta charset="UTF-8">
 
-<meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>
-    <?= htmlspecialchars($target_user['username']) ?>
-    - Predictions
-</title>
+<title><?= htmlspecialchars($target_user['username']) ?>'s Predictions</title>
 
 <script src="https://cdn.tailwindcss.com"></script>
 
 <style>
 
 :root {
-
-    --pl-dark: #050406;
-    --pl-purple: #37003c;
-    --pl-pink: #e90052;
-    --pl-yellow: #ffd86b;
-
+    --pl-dark: #06060a;
+    --pl-purple: #1a0030;
+    --pl-accent: #00ff9d;
+    --card: #120014;
+    --muted: #bfb7c6;
 }
 
 body {
+    background: url('PL_img/22.jpg') center/cover no-repeat fixed;
+}
 
-    background:
-
-        radial-gradient(
-            circle at 50% -10%,
-            #5b0064 0%,
-            #37003c 18%,
-            #100014 45%,
-            #050406 80%
-        );
-
+body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(10, 0, 21, 0.65);
+    z-index: -1;
+    pointer-events: none;
 }
 
 .team-logo {
-
-    width: 72px;
-    height: 72px;
-
+    width: 80px;
+    height: 80px;
     object-fit: contain;
-
-    background: white;
-
+    background: transparent;
     border-radius: 50%;
-
-    padding: 7px;
-
-    border:
-        2px solid
-        rgba(255,255,255,.15);
-
-    box-shadow:
-        0 10px 30px
-        rgba(0,0,0,.55);
-
+    padding: 6px;
+    border: 3px solid rgba(0,255,157,.35);
+    box-shadow: 0 8px 30px rgba(0,0,0,.5), inset 0 0 15px rgba(0,255,157,.08);
+    transition: all .3s ease;
 }
 
-.prediction-card {
-
-    background:
-        linear-gradient(
-            180deg,
-            rgba(255,255,255,.065),
-            rgba(255,255,255,.018)
-        );
-
-    border:
-        1px solid
-        rgba(255,255,255,.10);
-
-    box-shadow:
-        0 18px 50px
-        rgba(0,0,0,.45);
-
-    backdrop-filter:
-        blur(14px);
-
+.team-logo-fallback {
+    width: 80px;
+    height: 80px;
+    background: rgba(0,0,0,.3);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid rgba(0,255,157,.4);
+    font-size: 0.7rem;
+    font-weight: 900;
+    color: #f7f2fa;
+    text-align: center;
+    padding: 6px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5);
 }
 
-.score-box {
+@media(max-width:640px) {
+    .team-logo,
+    .team-logo-fallback {
+        width: 64px;
+        height: 64px;
+        padding: 4px;
+    }
+}
 
-    background:
-        rgba(0,0,0,.45);
+.match-card {
+    background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.018));
+    border: 1px solid rgba(255,255,255,.09);
+    box-shadow: 0 18px 50px rgba(0,0,0,.40);
+    backdrop-filter: blur(14px);
+}
 
-    border:
-        2px solid
-        rgba(233,0,82,.50);
+.nav-link {
+    transition: .2s ease;
+}
 
-    color:
-        #ffd86b;
+.nav-link:hover {
+    color: #00ff9d;
+}
 
+.text-accent {
+    color: var(--pl-accent);
+}
+
+.border-accent {
+    border-color: var(--pl-accent);
+}
+
+.bg-accent {
+    background: var(--pl-accent);
+}
+
+.bg-card {
+    background: var(--card);
+}
+
+.text-muted {
+    color: var(--muted);
+}
+
+.pred-box {
+    background: rgba(0,0,0,.35);
+    border: 2px solid rgba(0,255,157,.35);
+    color: #ffd86b;
+}
+
+.league-title {
+    background: linear-gradient(90deg, rgba(0,255,157,.15), rgba(26,0,48,.25), rgba(0,255,157,.15));
+    border: 1px solid rgba(0,255,157,.20);
+}
+
+.team-name {
+    max-width: 150px;
+}
+
+@media(max-width:640px) {
+    .team-name {
+        max-width: 110px;
+        font-size: .9rem;
+    }
+}
+
+.badge-exact {
+    background: rgba(250,204,21,.12);
+    color: #facc15;
+    border: 1px solid rgba(250,204,21,.35);
+}
+
+.badge-correct {
+    background: rgba(96,165,250,.12);
+    color: #60a5fa;
+    border: 1px solid rgba(96,165,250,.35);
+}
+
+.badge-wrong {
+    background: rgba(248,113,113,.12);
+    color: #f87171;
+    border: 1px solid rgba(248,113,113,.35);
+}
+
+.badge-pending {
+    background: rgba(255,255,255,.06);
+    color: #bfb7c6;
+    border: 1px solid rgba(255,255,255,.15);
 }
 
 </style>
 
 </head>
 
-
 <body class="min-h-screen text-white">
 
+<nav class="fixed top-0 left-0 right-0 z-50 bg-black/65 backdrop-blur-2xl border-b border-white/10 px-5 md:px-8 py-4 flex justify-between items-center">
 
-<!-- =========================================================
-     NAVBAR
-========================================================= -->
-
-<nav
-    class="
-        fixed
-        top-0
-        left-0
-        right-0
-        z-50
-        bg-black/65
-        backdrop-blur-2xl
-        border-b
-        border-white/10
-        px-5
-        md:px-8
-        py-4
-        flex
-        justify-between
-        items-center
-    "
->
-
-    <a
-        href="dashboard.php"
-        class="flex items-center gap-3"
-    >
-
-        <div
-            class="
-                w-11
-                h-11
-                rounded-full
-                bg-white
-                p-1
-            "
-        >
-
-            <img
-                src="PL_img/PL_LOGO1.png"
-                class="w-full h-full object-contain"
-                alt="Premier League"
-            >
-
+    <a href="dashboard.php" class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-full p-1 flex items-center justify-center">
+            <img src="PL_img/PL_LOGO1.png" class="w-full h-full object-contain" alt="Premier League">
         </div>
-
-
-        <span
-            class="
-                hidden
-                sm:block
-                text-lg
-                font-black
-            "
-        >
-            Premier League
-        </span>
-
+        <span class="hidden sm:block text-lg font-black">Premier League</span>
     </a>
 
-
-    <div
-        class="
-            hidden
-            md:flex
-            items-center
-            gap-7
-            text-sm
-            font-semibold
-        "
-    >
-
-        <a
-            href="dashboard.php"
-            class="hover:text-pink-400"
-        >
-            Dashboard
-        </a>
-
-        <a
-            href="predictions.php"
-            class="hover:text-pink-400"
-        >
-            Predictions
-        </a>
-
-        <a
-            href="leaderboard.php"
-            class="hover:text-pink-400"
-        >
-            Leaderboard
-        </a>
-
-        <a
-            href="my_predictions.php"
-            class="hover:text-pink-400"
-        >
-            My Predictions
-        </a>
-
+    <div class="hidden md:flex items-center gap-7 text-sm font-semibold">
+        <a href="dashboard.php" class="nav-link">Dashboard</a>
+        <a href="predictions.php" class="nav-link">Predictions</a>
+        <a href="leaderboard.php" class="nav-link">Leaderboard</a>
+        <a href="my_predictions.php" class="nav-link">My Predictions</a>
     </div>
+
+    <button onclick="toggleMenu()" class="md:hidden text-white focus:outline-none">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+    </button>
 
 </nav>
 
+<div id="mobileMenu" class="hidden bg-[#1a0030]/95 backdrop-blur-xl flex-col text-white py-2 px-0 fixed top-16 left-0 w-full z-40 md:hidden border-b border-white/10">
+    <a href="dashboard.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Dashboard</a>
+    <a href="predictions.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Predictions</a>
+    <a href="leaderboard.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Leaderboard</a>
+    <a href="my_predictions.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">My Predictions</a>
+</div>
 
-<div class="h-24"></div>
+<script>
+function toggleMenu() {
+    document.getElementById("mobileMenu").classList.toggle("hidden");
+}
+</script>
 
+<div class="w-full mt-24 max-w-6xl mx-auto bg-card backdrop-blur-md rounded-2xl shadow-2xl p-5 sm:p-6 mb-10 border border-white/10">
 
-<!-- =========================================================
-     MAIN
-========================================================= -->
-
-<main
-    class="
-        max-w-5xl
-        mx-auto
-        px-4
-        pb-16
-    "
->
-
-
-<!-- =========================================================
-     HEADER
-========================================================= -->
-
-<div
-    class="
-        prediction-card
-        rounded-2xl
-        p-6
-        md:p-8
-        mb-8
-        text-center
-    "
->
-
-    <div
-        class="
-            w-20
-            h-20
-            mx-auto
-            rounded-full
-            bg-gradient-to-br
-            from-purple-700
-            to-pink-600
-            flex
-            items-center
-            justify-center
-            text-3xl
-            font-black
-            mb-4
-        "
-    >
-
-        <?= htmlspecialchars(
-            strtoupper(
-                substr(
-                    $target_user['username'],
-                    0,
-                    1
-                )
-            )
-        ) ?>
-
-    </div>
-
-
-    <h1
-        class="
-            text-3xl
-            md:text-4xl
-            font-black
-            text-pink-400
-        "
-    >
-
-        <?= htmlspecialchars(
-            $target_user['username']
-        ) ?>
-
+<div class="text-center mb-8">
+    <h1 class="text-3xl sm:text-4xl font-black text-accent">
+        <?= htmlspecialchars($target_user['username']) ?>'s Predictions
     </h1>
-
-
-    <p
-        class="
-            text-gray-400
-            mt-2
-        "
-    >
-
-        Gameweek <?= $gameweek ?>
-        • Predictions
-
-    </p>
-
-
-    <div
-        class="
-            mt-5
-            inline-flex
-            items-center
-            gap-2
-            bg-pink-500
-            text-black
-            px-5
-            py-3
-            rounded-xl
-            font-black
-        "
-    >
-
-        ⭐
-        <?= $total_points ?>
-        Points
-
-    </div>
-
+    <p class="text-gray-400 mt-2">Gameweek <?= (int)$selected_gw ?> · Read-only</p>
 </div>
 
+<form method="GET" class="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
+    <input type="hidden" name="user_id" value="<?= (int)$target_user_id ?>">
+    <label for="gameweek" class="text-muted text-sm font-semibold">Select Gameweek:</label>
+    <select name="gameweek" id="gameweek" class="bg-[#120014] border border-accent text-white px-4 py-2.5 rounded-xl outline-none font-bold cursor-pointer" onchange="this.form.submit()">
+        <?php while ($gw = $gw_result->fetch_assoc()):
+            $gw_num = (int)$gw['gameweek'];
+            $selected = ($selected_gw == $gw_num) ? 'selected' : '';
+        ?>
+            <option value="<?= $gw_num ?>" <?= $selected ?>>
+                Gameweek <?= $gw_num ?>
+            </option>
+        <?php endwhile; ?>
+    </select>
+</form>
 
-<!-- =========================================================
-     GAMEWEEK SELECTOR
-========================================================= -->
+<?php if ($result->num_rows === 0): ?>
 
-<?php if (!empty($gameweeks)): ?>
-
-<div
-    class="
-        flex
-        justify-center
-        mb-8
-    "
->
-
-    <form method="GET">
-
-        <input
-            type="hidden"
-            name="user_id"
-            value="<?= $target_user_id ?>"
-        >
-
-        <select
-            name="gameweek"
-            onchange="this.form.submit()"
-            class="
-                bg-[#120014]
-                border
-                border-pink-500/60
-                text-white
-                rounded-xl
-                px-5
-                py-3
-                font-bold
-                outline-none
-                cursor-pointer
-            "
-        >
-
-            <?php foreach (
-                $gameweeks
-                as $gw
-            ): ?>
-
-                <option
-                    value="<?= $gw ?>"
-                    <?= $gw == $gameweek
-                        ? 'selected'
-                        : '' ?>
-                >
-
-                    Gameweek <?= $gw ?>
-
-                </option>
-
-            <?php endforeach; ?>
-
-        </select>
-
-    </form>
-
-</div>
-
-<?php endif; ?>
-
-
-<!-- =========================================================
-     READ ONLY NOTICE
-========================================================= -->
-
-<div
-    class="
-        mb-8
-        rounded-2xl
-        p-5
-        bg-green-500/10
-        border
-        border-green-500/25
-        text-center
-    "
->
-
-    <div
-        class="
-            text-2xl
-            mb-2
-        "
-    >
-        🔒
-    </div>
-
-
-    <h2
-        class="
-            font-black
-            text-green-400
-        "
-    >
-
-        Read Only
-
-    </h2>
-
-
-    <p
-        class="
-            text-gray-400
-            text-sm
-            mt-1
-        "
-    >
-
-        These are
-        <?= htmlspecialchars(
-            $target_user['username']
-        ) ?>'s
-        predictions for Gameweek
-        <?= $gameweek ?>.
-
-    </p>
-
-</div>
-
-
-<!-- =========================================================
-     PREDICTIONS
-========================================================= -->
-
-<?php if (empty($matches)): ?>
-
-    <div
-        class="
-            prediction-card
-            rounded-2xl
-            p-12
-            text-center
-        "
-    >
-
-        <div class="text-5xl mb-4">
-            ⚽
-        </div>
-
-        <p class="text-gray-400">
-
-            No matches available for this gameweek.
-
-        </p>
-
+    <div class="text-center text-muted py-12 bg-white/5 rounded-2xl border border-white/10">
+        <div class="text-5xl mb-4">⚽</div>
+        <p class="text-lg">No matches available for this gameweek.</p>
     </div>
 
 <?php else: ?>
 
+    <?php $current_league = ""; ?>
 
-    <?php foreach ($matches as $match): ?>
+    <div class="space-y-6">
+
+    <?php while ($match = $result->fetch_assoc()): ?>
+
+        <?php if ($match['competition'] !== $current_league): ?>
+            <?php $current_league = $match['competition']; ?>
+            <div class="league-title rounded-xl px-5 py-4 mt-8 mb-5 text-center">
+                <h2 class="text-xl sm:text-2xl font-black text-white"><?= htmlspecialchars($current_league) ?></h2>
+            </div>
+        <?php endif; ?>
 
         <?php
+        $home_logo = teamLogo($match['home_team']);
+        $away_logo = teamLogo($match['away_team']);
 
-        $match_id =
-            (int) $match['id'];
+        if (!$home_logo && !empty($match['home_team_pic'])) {
+            $home_logo = $match['home_team_pic'];
+        }
 
-        $home_logo =
-            teamLogo(
-                $match['home_team']
-            );
+        if (!$away_logo && !empty($match['away_team_pic'])) {
+            $away_logo = $match['away_team_pic'];
+        }
 
-        $away_logo =
-            teamLogo(
-                $match['away_team']
-            );
+        $has_prediction = $match['predicted_home'] !== null && $match['predicted_away'] !== null;
 
-        $has_prediction =
-            $match['predicted_home'] !== null
-            &&
-            $match['predicted_away'] !== null;
+        $is_finished = $match['home_score'] !== null && $match['away_score'] !== null;
 
-        $is_double =
-            $double_match_id === $match_id;
+        $badge_class = 'badge-pending';
+        $badge_text = 'Not played yet';
 
+        if (!$has_prediction) {
+            $badge_class = 'badge-pending';
+            $badge_text = 'No prediction made';
+        } elseif ($is_finished) {
+            if (
+                (int)$match['predicted_home'] === (int)$match['home_score'] &&
+                (int)$match['predicted_away'] === (int)$match['away_score']
+            ) {
+                $badge_class = 'badge-exact';
+                $badge_text = 'Exact score · +' . (int)($match['points'] ?? 3);
+            } elseif ((int)($match['points'] ?? 0) > 0) {
+                $badge_class = 'badge-correct';
+                $badge_text = 'Correct result · +' . (int)$match['points'];
+            } else {
+                $badge_class = 'badge-wrong';
+                $badge_text = 'Wrong · +0';
+            }
+        }
         ?>
 
+        <div class="match-card rounded-2xl overflow-hidden p-5 sm:p-6">
 
-        <div
-            class="
-                prediction-card
-                rounded-2xl
-                overflow-hidden
-                mb-7
-            "
-        >
-
-
-            <?php if ($is_double): ?>
-
-                <div
-                    class="
-                        bg-yellow-400
-                        text-black
-                        px-5
-                        py-3
-                        text-center
-                        font-black
-                    "
-                >
-
-                    ⭐ DOUBLE PICK
-                    • 2× POINTS
-
-                </div>
-
-            <?php endif; ?>
-
-
-            <!-- DATE -->
-
-            <div
-                class="
-                    bg-black/30
-                    border-b
-                    border-white/10
-                    text-center
-                    py-3
-                    text-gray-400
-                    text-sm
-                "
-            >
-
-                <?= date(
-                    'D, d M Y • H:i',
-                    strtotime(
-                        $match['match_date']
-                    )
-                ) ?>
-
+            <div class="text-center text-xs sm:text-sm text-gray-500 mb-5">
+                <?= date('D, d M Y • H:i', strtotime($match['match_date'])) ?>
             </div>
 
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
 
-            <!-- MATCH -->
-
-            <div class="p-6 md:p-8">
-
-
-                <div
-                    class="
-                        flex
-                        items-center
-                        justify-center
-                        gap-5
-                        sm:gap-10
-                        md:gap-16
-                    "
-                >
-
-
-                    <!-- AWAY -->
-
-                    <div
-                        class="
-                            flex
-                            flex-col
-                            items-center
-                            w-1/3
-                        "
-                    >
-
-                        <?php if ($away_logo): ?>
-
-                            <img
-                                src="<?= htmlspecialchars(
-                                    $away_logo
-                                ) ?>"
-                                class="team-logo"
-                                alt="<?= htmlspecialchars(
-                                    $match['away_team']
-                                ) ?>"
-                            >
-
-                        <?php else: ?>
-
-                            <div
-                                class="
-                                    team-logo
-                                    flex
-                                    items-center
-                                    justify-center
-                                    text-black
-                                    text-xs
-                                    font-black
-                                    text-center
-                                "
-                            >
-
-                                <?= htmlspecialchars(
-                                    $match['away_team']
-                                ) ?>
-
-                            </div>
-
-                        <?php endif; ?>
-
-
-                        <h3
-                            class="
-                                mt-3
-                                font-black
-                                text-center
-                                text-xs
-                                sm:text-sm
-                                md:text-lg
-                            "
-                        >
-
-                            <?= htmlspecialchars(
-                                $match['away_team']
-                            ) ?>
-
-                        </h3>
-
-
-                        <span
-                            class="
-                                text-[10px]
-                                text-gray-500
-                                mt-1
-                            "
-                        >
-
-                            AWAY
-
-                        </span>
-
+                <div class="flex items-center gap-3 w-full sm:w-1/3 justify-center sm:justify-start text-center sm:text-left">
+                    <div class="flex flex-col items-center sm:items-start">
+                        <span class="text-xs text-gray-500 mb-1">HOME</span>
+                        <span class="team-name truncate text-base sm:text-lg font-black"><?= htmlspecialchars($match['home_team']) ?></span>
                     </div>
-
-
-                    <!-- CENTER -->
-
-                    <div
-                        class="
-                            flex
-                            flex-col
-                            items-center
-                            justify-center
-                            min-w-[100px]
-                        "
-                    >
-
-                        <span
-                            class="
-                                text-[10px]
-                                sm:text-xs
-                                text-gray-500
-                                uppercase
-                                font-bold
-                            "
-                        >
-
-                            Prediction
-
-                        </span>
-
-
-                        <?php if ($has_prediction): ?>
-
-                            <div
-                                class="
-                                    score-box
-                                    rounded-xl
-                                    px-5
-                                    py-3
-                                    text-xl
-                                    sm:text-2xl
-                                    font-black
-                                    mt-2
-                                "
-                            >
-
-                                <?= (int)
-                                    $match['predicted_away']
-                                ?>
-
-                                <span
-                                    class="
-                                        text-pink-400
-                                        mx-1
-                                    "
-                                >
-                                    -
-                                </span>
-
-                                <?= (int)
-                                    $match['predicted_home']
-                                ?>
-
-                            </div>
-
-                        <?php else: ?>
-
-                            <div
-                                class="
-                                    mt-2
-                                    text-gray-500
-                                    font-bold
-                                "
-                            >
-
-                                Not submitted
-
-                            </div>
-
-                        <?php endif; ?>
-
-                    </div>
-
-
-                    <!-- HOME -->
-
-                    <div
-                        class="
-                            flex
-                            flex-col
-                            items-center
-                            w-1/3
-                        "
-                    >
-
-                        <?php if ($home_logo): ?>
-
-                            <img
-                                src="<?= htmlspecialchars(
-                                    $home_logo
-                                ) ?>"
-                                class="team-logo"
-                                alt="<?= htmlspecialchars(
-                                    $match['home_team']
-                                ) ?>"
-                            >
-
-                        <?php else: ?>
-
-                            <div
-                                class="
-                                    team-logo
-                                    flex
-                                    items-center
-                                    justify-center
-                                    text-black
-                                    text-xs
-                                    font-black
-                                    text-center
-                                "
-                            >
-
-                                <?= htmlspecialchars(
-                                    $match['home_team']
-                                ) ?>
-
-                            </div>
-
-                        <?php endif; ?>
-
-
-                        <h3
-                            class="
-                                mt-3
-                                font-black
-                                text-center
-                                text-xs
-                                sm:text-sm
-                                md:text-lg
-                            "
-                        >
-
-                            <?= htmlspecialchars(
-                                $match['home_team']
-                            ) ?>
-
-                        </h3>
-
-
-                        <span
-                            class="
-                                text-[10px]
-                                text-gray-500
-                                mt-1
-                            "
-                        >
-
-                            HOME
-
-                        </span>
-
-                    </div>
-
+                    <?php if ($home_logo): ?>
+                        <img src="<?= htmlspecialchars($home_logo) ?>" alt="<?= htmlspecialchars($match['home_team']) ?>" class="team-logo shrink-0">
+                    <?php else: ?>
+                        <div class="team-logo-fallback shrink-0"><?= htmlspecialchars(substr($match['home_team'], 0, 12)) ?></div>
+                    <?php endif; ?>
                 </div>
 
-
-                <!-- POINTS -->
-
-                <?php if ($has_prediction): ?>
-
-                    <div
-                        class="
-                            mt-7
-                            flex
-                            justify-center
-                        "
-                    >
-
-                        <div
-                            class="
-                                bg-black/30
-                                border
-                                border-white/10
-                                rounded-xl
-                                px-7
-                                py-3
-                                text-center
-                            "
-                        >
-
-                            <div
-                                class="
-                                    text-xs
-                                    text-gray-500
-                                    mb-2
-                                "
-                            >
-
-                                POINTS
-
-                            </div>
-
-
-                            <?= pointBadge(
-                                $match['points'],
-                                $is_double
-                            ) ?>
-
+                <div class="flex flex-col items-center justify-center w-full sm:w-1/3">
+                    <div class="flex items-center justify-center gap-2">
+                        <div class="pred-box w-12 sm:w-14 h-12 rounded-lg flex items-center justify-center font-black text-lg">
+                            <?= $has_prediction ? (int)$match['predicted_home'] : '–' ?>
                         </div>
-
+                        <span class="text-accent font-black text-xl">-</span>
+                        <div class="pred-box w-12 sm:w-14 h-12 rounded-lg flex items-center justify-center font-black text-lg">
+                            <?= $has_prediction ? (int)$match['predicted_away'] : '–' ?>
+                        </div>
                     </div>
+                    <span class="text-[10px] text-gray-500 mt-2">
+                        <?= htmlspecialchars($target_user['username']) ?>'S PREDICTION
+                    </span>
 
-                <?php endif; ?>
+                    <?php if ($is_finished): ?>
+                        <span class="text-xs text-gray-400 mt-1">
+                            Final score: <?= (int)$match['home_score'] ?> - <?= (int)$match['away_score'] ?>
+                        </span>
+                    <?php endif; ?>
 
+                    <span class="mt-3 inline-block text-xs font-black px-3 py-1 rounded-full <?= $badge_class ?>">
+                        <?= $badge_text ?>
+                    </span>
+                </div>
+
+                <div class="flex items-center gap-3 w-full sm:w-1/3 justify-center sm:justify-end text-center sm:text-right">
+                    <?php if ($away_logo): ?>
+                        <img src="<?= htmlspecialchars($away_logo) ?>" alt="<?= htmlspecialchars($match['away_team']) ?>" class="team-logo shrink-0">
+                    <?php else: ?>
+                        <div class="team-logo-fallback shrink-0"><?= htmlspecialchars(substr($match['away_team'], 0, 12)) ?></div>
+                    <?php endif; ?>
+                    <div class="flex flex-col items-center sm:items-end">
+                        <span class="text-xs text-gray-500 mb-1">AWAY</span>
+                        <span class="team-name truncate text-base sm:text-lg font-black"><?= htmlspecialchars($match['away_team']) ?></span>
+                    </div>
+                </div>
 
             </div>
 
         </div>
 
-    <?php endforeach; ?>
+    <?php endwhile; ?>
 
+    </div>
 
 <?php endif; ?>
 
-
-<!-- =========================================================
-     BACK
-========================================================= -->
-
-<div
-    class="
-        text-center
-        mt-8
-    "
->
-
-    <a
-        href="my_predictions.php?gameweek=<?= $gameweek ?>"
-        class="
-            inline-flex
-            items-center
-            gap-2
-            bg-pink-500
-            hover:bg-pink-600
-            text-black
-            px-6
-            py-3
-            rounded-xl
-            font-black
-            transition
-        "
-    >
-
-        ← Back to My Predictions
-
-    </a>
-
+<div class="text-center mt-8 pb-4">
+    <a href="other_matches.php?gameweek=<?= (int)$selected_gw ?>" class="text-accent underline text-sm sm:text-base font-semibold hover:text-pink-300">← Back to Other Leagues Predictions</a>
 </div>
 
-
-</main>
+</div>
 
 </body>
 

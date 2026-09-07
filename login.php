@@ -34,7 +34,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
    <meta charset="UTF-8">
    <meta name="viewport" content="width=device-width, initial-scale=1.0">
    <title>Login | Premier League Predictions</title>
-   <link rel="icon" type="image/jpg" href="PL_img/hadi.jpg">
    <script src="https://cdn.tailwindcss.com"></script>
    <style>
      /* Background image and overlay to match the rest of the site */

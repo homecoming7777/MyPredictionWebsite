@@ -2,6 +2,9 @@
 
 session_start();
 include 'connect.php';
+require_once 'gameweek_deadline.php';
+
+date_default_timezone_set('Africa/Casablanca');
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -105,6 +108,25 @@ if ($selected_gw < $last_gameweek) {
     exit();
 }
 
+$gameweekDeadline = getGameweekDeadline(
+    $conn,
+    $selected_gw
+);
+
+$deadlinePassed = isGameweekDeadlinePassed(
+    $conn,
+    $selected_gw
+);
+
+$deadlineTimestamp = gameweekDeadlineTimestamp(
+    $conn,
+    $selected_gw
+);
+
+$deadlineText = $gameweekDeadline
+    ? $gameweekDeadline->format('D, d M Y • H:i')
+    : null;
+
 $sql = "
     SELECT
         m.*,
@@ -131,6 +153,53 @@ if (!$stmt) {
 $stmt->bind_param("ii", $user_id, $selected_gw);
 $stmt->execute();
 $result = $stmt->get_result();
+
+/*
+|--------------------------------------------------------------------------
+| OTHER USERS' PREDICTIONS (read-only list)
+|--------------------------------------------------------------------------
+|
+| Only loaded once the deadline has passed, so nobody's picks leak before
+| the matches are locked. Lists everyone who submitted at least one
+| prediction for this gameweek's "Other Leagues" matches, with a link to
+| a read-only breakdown of that user's picks.
+|
+*/
+
+$other_users_predictions = [];
+
+if ($deadlinePassed) {
+
+    $others_sql = "
+        SELECT
+            u.id AS user_id,
+            u.username,
+            COUNT(DISTINCT se.match_id) AS predictions_made,
+            SUM(se.points) AS total_points
+        FROM score_exact se
+        JOIN users u ON u.id = se.user_id
+        JOIN matches m ON m.id = se.match_id
+        WHERE
+            m.gameweek = ?
+            AND m.competition <> 'Premier League'
+        GROUP BY u.id, u.username
+        ORDER BY u.username ASC
+    ";
+
+    $others_stmt = $conn->prepare($others_sql);
+
+    if ($others_stmt) {
+        $others_stmt->bind_param("i", $selected_gw);
+        $others_stmt->execute();
+        $others_result = $others_stmt->get_result();
+
+        while ($row = $others_result->fetch_assoc()) {
+            $other_users_predictions[] = $row;
+        }
+
+        $others_stmt->close();
+    }
+}
 
 ?>
 
@@ -345,23 +414,6 @@ function toggleMenu() {
     <p class="text-gray-400 mt-2">Gameweek <?= $selected_gw ?></p>
 </div>
 
-<div id="countdown-container" class="text-center mb-7 bg-white/5 border border-white/10 rounded-xl p-4">
-    <p class="text-lg font-semibold">⏰ Deadline in: <span id="countdown" class="font-black text-accent"></span></p>
-</div>
-
-<div id="deadline-message" class="hidden text-center mt-10 mb-10">
-    <div class="bg-red-500/10 border border-red-500/30 rounded-2xl p-8">
-        <div class="text-5xl mb-4">🔒</div>
-        <h2 class="text-2xl font-black text-red-400 mb-4">Prediction Deadline Has Passed!</h2>
-        <p class="text-gray-400 mb-6">You can no longer submit predictions for these matches.</p>
-        <a href="my_predictions.php" class="bg-accent hover:bg-green-600 text-black px-6 py-3 rounded-lg font-black inline-block mb-3 transition">Go to My Predictions</a>
-        <br>
-        <a href="predictions.php" class="text-accent underline text-sm sm:text-base">← Back to Premier League</a>
-    </div>
-</div>
-
-<div id="matches-container">
-
 <form method="GET" class="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
     <label for="gameweek" class="text-muted text-sm font-semibold">Select Gameweek:</label>
     <select name="gameweek" id="gameweek" class="bg-[#120014] border border-accent text-white px-4 py-2.5 rounded-xl outline-none font-bold cursor-pointer" onchange="this.form.submit()">
@@ -376,6 +428,102 @@ function toggleMenu() {
         <?php endwhile; ?>
     </select>
 </form>
+
+<?php if ($deadlinePassed): ?>
+
+<div id="deadline-message" class="text-center mt-10 mb-10">
+    <div class="bg-red-500/10 border border-red-500/30 rounded-2xl p-8">
+        <div class="text-5xl mb-4">🔒</div>
+        <h2 class="text-2xl font-black text-red-400 mb-4">Prediction Deadline Has Passed!</h2>
+        <p class="text-gray-400 mb-2">
+            The prediction deadline for
+            <strong class="text-white">Gameweek <?= (int)$selected_gw ?></strong>
+            has passed.
+        </p>
+        <?php if ($deadlineText): ?>
+            <p class="text-gray-400 mb-6">Deadline: <strong class="text-white"><?= htmlspecialchars($deadlineText) ?></strong></p>
+        <?php else: ?>
+            <p class="text-gray-400 mb-6">You can no longer submit predictions for these matches.</p>
+        <?php endif; ?>
+        <a href="my_predictions.php" class="bg-accent hover:bg-green-600 text-black px-6 py-3 rounded-lg font-black inline-block mb-3 transition">Go to My Predictions</a>
+        <br>
+        <a href="predictions.php" class="text-accent underline text-sm sm:text-base">← Back to Premier League</a>
+    </div>
+</div>
+
+<!-- OTHER USERS' PREDICTIONS -->
+
+<div class="mt-10">
+
+    <div class="text-center mb-6">
+        <h2 class="text-2xl font-black text-white">Other Users' Predictions</h2>
+        <p class="text-gray-400 mt-1 text-sm">Gameweek <?= (int)$selected_gw ?> · Read-only</p>
+    </div>
+
+    <?php if (count($other_users_predictions) === 0): ?>
+
+        <div class="text-center text-muted py-10 bg-white/5 rounded-2xl border border-white/10">
+            <p>No one has submitted a prediction for this gameweek yet.</p>
+        </div>
+
+    <?php else: ?>
+
+        <div class="overflow-x-auto rounded-2xl border border-white/10">
+            <table class="w-full text-left">
+                <thead class="bg-white/5 text-xs uppercase tracking-wider text-gray-400">
+                    <tr>
+                        <th class="px-5 py-3">User</th>
+                        <th class="px-5 py-3 text-center">Predictions Made</th>
+                        <th class="px-5 py-3 text-center">Points</th>
+                        <th class="px-5 py-3 text-right"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-white/10">
+                    <?php foreach ($other_users_predictions as $u): ?>
+                        <?php $is_self = ((int)$u['user_id'] === $user_id); ?>
+                        <tr class="hover:bg-white/5 transition">
+                            <td class="px-5 py-3 font-bold">
+                                <?= htmlspecialchars($u['username']) ?>
+                                <?php if ($is_self): ?>
+                                    <span class="text-xs text-accent font-black ml-1">(You)</span>
+                                <?php endif; ?>
+                            </td>
+                            <td class="px-5 py-3 text-center"><?= (int)$u['predictions_made'] ?></td>
+                            <td class="px-5 py-3 text-center font-black text-accent">
+                                <?= $u['total_points'] !== null ? (int)$u['total_points'] : '—' ?>
+                            </td>
+                            <td class="px-5 py-3 text-right">
+                                <?php if (!$is_self): ?>
+                                    <a
+                                        href="user_predictions.php?user_id=<?= (int)$u['user_id'] ?>&gameweek=<?= (int)$selected_gw ?>"
+                                        class="text-accent underline text-sm font-semibold hover:text-pink-300"
+                                    >
+                                        View predictions →
+                                    </a>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+
+    <?php endif; ?>
+
+</div>
+
+<?php else: ?>
+
+<div id="countdown-container" class="text-center mb-7 bg-white/5 border border-white/10 rounded-xl p-4">
+    <?php if ($deadlineTimestamp): ?>
+        <p class="text-lg font-semibold">⏰ Deadline in: <span id="countdown" class="font-black text-accent"></span></p>
+        <p class="text-xs text-gray-400 mt-1">Deadline: <?= htmlspecialchars($deadlineText) ?></p>
+    <?php else: ?>
+        <p class="text-lg font-semibold">Predictions are currently open.</p>
+    <?php endif; ?>
+</div>
+
+<div id="matches-container">
 
 <?php if ($result->num_rows === 0): ?>
 
@@ -480,34 +628,33 @@ function toggleMenu() {
 
 </div>
 
+<?php endif; ?>
+
 </div>
 
+<?php if (!$deadlinePassed && $deadlineTimestamp): ?>
 <script>
-const deadline = new Date("2026-12-13T13:30:00").getTime();
+const deadline = <?= (int)$deadlineTimestamp ?> * 1000;
 const countdown = document.getElementById("countdown");
-const matchesContainer = document.getElementById("matches-container");
-const deadlineMsg = document.getElementById("deadline-message");
 
-function updateCountdown() {
+const timer = setInterval(() => {
     const now = new Date().getTime();
     const diff = deadline - now;
 
     if (diff <= 0) {
-        countdown.textContent = "Deadline Passed";
-        matchesContainer.classList.add("hidden");
-        deadlineMsg.classList.remove("hidden");
         clearInterval(timer);
-    } else {
-        const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-        const minutes = Math.floor((diff / (1000 * 60)) % 60);
-        const seconds = Math.floor((diff / 1000) % 60);
-        countdown.textContent = `${hours}h ${minutes}m ${seconds}s`;
+        window.location.reload();
+        return;
     }
-}
 
-const timer = setInterval(updateCountdown, 1000);
-updateCountdown();
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+    const minutes = Math.floor((diff / (1000 * 60)) % 60);
+    const seconds = Math.floor((diff / 1000) % 60);
+    countdown.textContent = `${days}d ${hours}h ${minutes}m ${seconds}s`;
+}, 1000);
 </script>
+<?php endif; ?>
 
 </body>
 

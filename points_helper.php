@@ -12,6 +12,42 @@
 
 if (!function_exists('calculateFinalPoints')) {
 
+    /**
+     * Result of a scoreline: 1 = home win, -1 = away win, 0 = draw.
+     */
+    function pointsHelperResult(int $home, int $away): int
+    {
+        if ($home > $away) {
+            return 1;
+        }
+
+        if ($home < $away) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Normal football points for one prediction vs the real score.
+     * Exact score = 3, correct result (win/draw/loss) = 1, else 0.
+     */
+    function pointsHelperCalculateBasePoints(
+        int $predHome,
+        int $predAway,
+        int $realHome,
+        int $realAway
+    ): int {
+        if ($predHome === $realHome && $predAway === $realAway) {
+            return 3;
+        }
+
+        $predicted = pointsHelperResult($predHome, $predAway);
+        $actual    = pointsHelperResult($realHome, $realAway);
+
+        return ($predicted === $actual) ? 1 : 0;
+    }
+
     function calculateFinalPoints(
         mysqli $conn,
         int $userId,
@@ -36,6 +72,9 @@ if (!function_exists('calculateFinalPoints')) {
         }
 
         $gameweek = (int)$row['gameweek'];
+                if (function_exists('shipsDoubleAllActive') && shipsDoubleAllActive($conn, $userId, $gameweek)) {
+            return $basePoints * 2;
+        }
 
         $stmt = $conn->prepare("\n            SELECT id\n            FROM double_gameweek\n            WHERE user_id = ?\n              AND gameweek = ?\n              AND match_id = ?\n            LIMIT 1\n        ");
 
@@ -56,7 +95,7 @@ if (!function_exists('calculateFinalPoints')) {
         int $userId,
         int $matchId
     ): void {
-        $stmt = $conn->prepare("\n            SELECT base_points, points\n            FROM score_exact\n            WHERE user_id = ?\n              AND match_id = ?\n            LIMIT 1\n        ");
+        $stmt = $conn->prepare("\n            SELECT\n                se.predicted_home,\n                se.predicted_away,\n                m.home_score,\n                m.away_score\n            FROM score_exact se\n            INNER JOIN matches m ON m.id = se.match_id\n            WHERE se.user_id = ?\n              AND se.match_id = ?\n            LIMIT 1\n        ");
 
         if (!$stmt) {
             throw new RuntimeException('Prediction lookup failed: ' . $conn->error);
@@ -71,7 +110,25 @@ if (!function_exists('calculateFinalPoints')) {
             return;
         }
 
-        $basePoints = max(0, (int)$prediction['base_points']);
+        /*
+         * ALWAYS (re)calculate base_points from the real match score
+         * here - this is the single source of truth for it. Trusting
+         * a stored base_points value that nothing had calculated yet
+         * was the bug that left points stuck at 0 after saving a
+         * real score. If the match hasn't been played yet, there is
+         * no real score to compare against, so base_points is 0.
+         */
+        if ($prediction['home_score'] !== null && $prediction['away_score'] !== null) {
+            $basePoints = pointsHelperCalculateBasePoints(
+                (int)$prediction['predicted_home'],
+                (int)$prediction['predicted_away'],
+                (int)$prediction['home_score'],
+                (int)$prediction['away_score']
+            );
+        } else {
+            $basePoints = 0;
+        }
+
         $finalPoints = calculateFinalPoints(
             $conn,
             $userId,
@@ -81,14 +138,14 @@ if (!function_exists('calculateFinalPoints')) {
 
         $conn->query('SET @double_recalc = 1');
 
-        $stmt = $conn->prepare("\n            UPDATE score_exact\n            SET points = ?\n            WHERE user_id = ?\n              AND match_id = ?\n        ");
+        $stmt = $conn->prepare("\n            UPDATE score_exact\n            SET base_points = ?,\n                points = ?\n            WHERE user_id = ?\n              AND match_id = ?\n        ");
 
         if (!$stmt) {
             $conn->query('SET @double_recalc = 0');
             throw new RuntimeException('Prediction update failed: ' . $conn->error);
         }
 
-        $stmt->bind_param('iii', $finalPoints, $userId, $matchId);
+        $stmt->bind_param('iiii', $basePoints, $finalPoints, $userId, $matchId);
         $stmt->execute();
         $stmt->close();
 
@@ -106,8 +163,16 @@ if (!function_exists('calculateFinalPoints')) {
             );
             $stmt->execute();
             $stmt->close();
+            
+        }
+        
+        
+    
+                if (function_exists('settlePerfectFiveForMatch')) {
+            settlePerfectFiveForMatch($conn, $userId, $matchId);
         }
     }
+        }
 
     function syncUserPoints(
         mysqli $conn,
@@ -161,4 +226,3 @@ if (!function_exists('calculateFinalPoints')) {
             syncUserPoints($conn, (int)$user['id']);
         }
     }
-}

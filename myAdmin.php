@@ -2,7 +2,8 @@
 
 session_start();
 include 'connect.php';
-
+require_once 'points_helper.php';
+require_once 'ships_helper.php';
 /*
 |--------------------------------------------------------------------------
 | ADMIN CHECK
@@ -293,93 +294,135 @@ if (
 
             while ($prediction = $predictions_result->fetch_assoc()) {
 
-                $points = calculatePoints(
-                    (int)$prediction['predicted_home'],
-                    (int)$prediction['predicted_away'],
-                    $home_score,
-                    $away_score
-                );
+    /*
+     * --------------------------------------------------------
+     * RECALCULATE EVERYTHING THROUGH CENTRAL POINTS HELPER
+     * --------------------------------------------------------
+     *
+     * points_helper.php now computes base_points (0/1/3) itself
+     * from the real score that was just saved above, then applies
+     * the Double Pick multiplier and updates the secondary
+     * predictions table. Nothing else needs to happen here.
+     */
+
+    syncPredictionPoints(
+        $conn,
+        (int)$prediction['user_id'],
+        $match_id
+    );
 
 
-                /*
-                |--------------------------------------------------------------------------
-                | Update score_exact.points
-                |--------------------------------------------------------------------------
-                */
+    /*
+     * --------------------------------------------------------
+     * GET THE FINAL POINTS FOR THE ADMIN MESSAGE
+     * --------------------------------------------------------
+     */
 
-                $update_prediction = $conn->prepare("
-                    UPDATE score_exact
-                    SET points = ?
-                    WHERE id = ?
-                ");
+    $points_stmt = $conn->prepare("
+        SELECT
+            base_points,
+            points
+        FROM score_exact
+        WHERE id = ?
+        LIMIT 1
+    ");
 
-                $update_prediction->bind_param(
-                    "ii",
-                    $points,
-                    $prediction['id']
-                );
+    if (!$points_stmt) {
+        throw new Exception(
+            "Unable to read calculated points: " .
+            $conn->error
+        );
+    }
 
-                $update_prediction->execute();
+    $prediction_id = (int)$prediction['id'];
 
-                $update_prediction->close();
+    $points_stmt->bind_param(
+        "i",
+        $prediction_id
+    );
 
+    $points_stmt->execute();
 
-                /*
-                |--------------------------------------------------------------------------
-                | Update predictions table if corresponding row exists
-                |--------------------------------------------------------------------------
-                |
-                | This keeps your existing statistics/profile system synchronized.
-                |
-                */
+    $points_row =
+        $points_stmt
+            ->get_result()
+            ->fetch_assoc();
 
-                $update_general = $conn->prepare("
-                    UPDATE predictions
-                    SET
-                        actual_home = ?,
-                        actual_away = ?,
-                        is_correct = ?,
-                        points = ?
-                    WHERE user_id = ?
-                    AND match_id = ?
-                ");
-
-                /*
-                | is_correct means the RESULT was correct,
-                | not necessarily exact score.
-                */
-
-                $predicted_result = getResult(
-                    (int)$prediction['predicted_home'],
-                    (int)$prediction['predicted_away']
-                );
-
-                $real_result = getResult(
-                    $home_score,
-                    $away_score
-                );
-
-                $is_correct = ($predicted_result === $real_result) ? 1 : 0;
-
-                $update_general->bind_param(
-                    "iiiiii",
-                    $home_score,
-                    $away_score,
-                    $is_correct,
-                    $points,
-                    $prediction['user_id'],
-                    $match_id
-                );
-
-                $update_general->execute();
-
-                $update_general->close();
+    $points_stmt->close();
 
 
-                $calculated_count++;
+    $points = (int)(
+        $points_row['points'] ?? 0
+    );
 
-                $total_points_added += $points;
-            }
+
+    /*
+     * --------------------------------------------------------
+     * UPDATE SECONDARY predictions TABLE
+     * --------------------------------------------------------
+     *
+     * Keep the existing actual result + correctness
+     * information synchronized.
+     */
+
+    $predicted_result = getResult(
+        (int)$prediction['predicted_home'],
+        (int)$prediction['predicted_away']
+    );
+
+    $real_result = getResult(
+        $home_score,
+        $away_score
+    );
+
+    $is_correct =
+        ($predicted_result === $real_result)
+        ? 1
+        : 0;
+
+
+    $update_general = $conn->prepare("
+        UPDATE predictions
+        SET
+            actual_home = ?,
+            actual_away = ?,
+            is_correct = ?,
+            points = ?
+        WHERE user_id = ?
+          AND match_id = ?
+    ");
+
+    if (!$update_general) {
+        throw new Exception(
+            "Unable to update predictions table: " .
+            $conn->error
+        );
+    }
+
+
+    $update_general->bind_param(
+        "iiiiii",
+        $home_score,
+        $away_score,
+        $is_correct,
+        $points,
+        $prediction['user_id'],
+        $match_id
+    );
+
+
+    $update_general->execute();
+
+    $update_general->close();
+
+
+    /*
+     * Statistics.
+     */
+    $calculated_count++;
+
+    $total_points_added += $points;
+}
 
             $stmt->close();
 

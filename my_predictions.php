@@ -8,7 +8,10 @@
         exit();
     }
 
-    $user_id = (int) $_SESSION['user_id'];
+        $user_id = (int) $_SESSION['user_id'];
+
+    require_once 'points_helper.php';
+    require_once 'ships_helper.php';
 
     function e($value)
     {
@@ -68,6 +71,54 @@
         $key = implode(' ', $parts);
 
         return $key !== '' ? $key : $name;
+    }
+
+    /**
+     * Confirms a logo path stored in the DB actually exists on disk.
+     * If the exact case doesn't exist (e.g. DB says "Barcelona.png" but
+     * the real file is "barcelona.PNG"), it looks for a case-insensitive
+     * match in the same folder and corrects the path automatically.
+     * Returns null if nothing usable is found, so callers can keep
+     * trying other candidates instead of rendering a broken <img>.
+     */
+    function resolveLocalLogoPath($logoPath)
+    {
+        $logoPath = trim((string) $logoPath);
+
+        if ($logoPath === '') {
+            return null;
+        }
+
+        // Remote URLs are trusted as-is.
+        if (preg_match('#^(https?:)?//#i', $logoPath)) {
+            return $logoPath;
+        }
+
+        $relative = ltrim(str_replace('\\', '/', $logoPath), '/');
+        $fullPath = __DIR__ . DIRECTORY_SEPARATOR . $relative;
+
+        if (file_exists($fullPath)) {
+            return $relative;
+        }
+
+        $dir = dirname($fullPath);
+        $base = basename($relative);
+
+        if (is_dir($dir)) {
+            $entries = @scandir($dir);
+
+            if ($entries) {
+                foreach ($entries as $entry) {
+                    if ($entry !== '.' && $entry !== '..' && strcasecmp($entry, $base) === 0) {
+                        $relativeDir = dirname($relative);
+
+                        return ($relativeDir === '.' ? '' : $relativeDir . '/') . $entry;
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     function teamLogo($teamName, $conn)
@@ -136,7 +187,11 @@
         foreach ($candidates as $candidate) {
             foreach ($teamsCache as $team) {
                 if ($team['normalized'] === $candidate) {
-                    return $team['logo'];
+                    $resolved = resolveLocalLogoPath($team['logo']);
+
+                    if ($resolved !== null) {
+                        return $resolved;
+                    }
                 }
             }
         }
@@ -146,7 +201,11 @@
 
         foreach ($teamsCache as $team) {
             if ($team['key'] === $inputKey) {
-                return $team['logo'];
+                $resolved = resolveLocalLogoPath($team['logo']);
+
+                if ($resolved !== null) {
+                    return $resolved;
+                }
             }
         }
 
@@ -174,7 +233,11 @@
                 strpos($team['normalized'], $normalizedInput) !== false ||
                 strpos($normalizedInput, $team['normalized']) !== false
             )) {
-                return $team['logo'];
+                $resolved = resolveLocalLogoPath($team['logo']);
+
+                if ($resolved !== null) {
+                    return $resolved;
+                }
             }
         }
 
@@ -294,9 +357,37 @@
         }
     }
 
-    if (!$is_viewing_other_user) {
+        if (!$is_viewing_other_user) {
         $view_user_id = $user_id;
         $view_username = null;
+    }
+
+    /* ------------------------------------------------------------------
+       SHIPS: check status + handle "activate ship" POST action
+       ------------------------------------------------------------------ */
+
+    $shipsOwnerDoubleAllActive = shipsDoubleAllActive($conn, $user_id, $gameweek);
+
+    if (
+        $_SERVER['REQUEST_METHOD'] === 'POST' &&
+        isset($_POST['activate_ship']) &&
+        isset($_POST['gameweek'])
+    ) {
+        $posted_gameweek = (int)$_POST['gameweek'];
+        $ship_code = (string)$_POST['activate_ship'];
+
+        if ($posted_gameweek === $gameweek && !$is_viewing_other_user && $ship_code === 'DOUBLE_ALL') {
+            [$ok, $reason] = shipsActivateDoubleAll($conn, $user_id, $gameweek);
+            $redirect = "my_predictions.php?gameweek=" . $gameweek;
+            $redirect .= $ok
+                ? "&ships_message=" . urlencode('Double Up activated for this gameweek!')
+                : "&ships_error=" . urlencode($reason);
+            header("Location: " . $redirect);
+            exit();
+        }
+
+        header("Location: my_predictions.php?gameweek=" . $gameweek);
+        exit();
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['double_match']) && isset($_POST['gameweek'])) {
@@ -308,7 +399,7 @@
             exit();
         }
 
-        if (!$is_locked && !$is_viewing_other_user && $double_match > 0) {
+                if (!$is_locked && !$is_viewing_other_user && $double_match > 0 && !$shipsOwnerDoubleAllActive) {
             $verify_stmt = $conn->prepare("
                 SELECT id
                 FROM matches
@@ -378,8 +469,15 @@
             $current_double = (int)$double_row['match_id'];
         }
 
-        $double_stmt->close();
+                $double_stmt->close();
     }
+
+    $doubleAllActiveThisGw = shipsDoubleAllActive($conn, $view_user_id, $gameweek);
+    $perfectFiveThisGw = shipsGetPerfectFiveForGameweek($conn, $view_user_id, $gameweek);
+    $shipsCatalog = shipsCatalog();
+    $shipsUsage = shipsGetUserUsage($conn, $view_user_id);
+    $shipsMessage = $_GET['ships_message'] ?? null;
+    $shipsError = $_GET['ships_error'] ?? null;
 
     $matches = [];
 
@@ -422,6 +520,11 @@
 
     $total_points = 0;
 
+    /*
+     * score_exact.points already stores the FINAL points (base_points,
+     * doubled once by points_helper.php when a Double Pick is active).
+     * Do NOT multiply it again here - just sum it.
+     */
     $total_sql = "
         SELECT COALESCE(SUM(COALESCE(p.points, 0)), 0) AS total_points
         FROM score_exact p
@@ -769,7 +872,110 @@
                     </div>
                     <p class="text-gray-300 mt-1"><?= e($double_match_name ?? 'Selected match') ?></p>
                 </div>
-                <div class="inline-flex items-center justify-center bg-yellow-400 text-black px-5 py-2.5 rounded-full font-black self-start md:self-auto">2× POINTS</div>
+                                <div class="inline-flex items-center justify-center bg-yellow-400 text-black px-5 py-2.5 rounded-full font-black self-start md:self-auto">2× POINTS</div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($doubleAllActiveThisGw): ?>
+        <div class="mb-7 rounded-2xl bg-gradient-to-r from-yellow-300/20 via-pink-500/10 to-yellow-300/20 border border-yellow-300/30 p-5 md:p-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <div class="text-yellow-300 font-black text-lg">
+                        <?php if ($is_viewing_other_user): ?><?= e($view_username) ?>'S DOUBLE UP<?php else: ?>DOUBLE UP ACTIVE<?php endif; ?>
+                    </div>
+                    <p class="text-gray-300 mt-1 text-sm">Every match this gameweek is worth double points.</p>
+                </div>
+                <div class="inline-flex items-center justify-center bg-yellow-400 text-black px-5 py-2.5 rounded-full font-black self-start md:self-auto">2× ALL MATCHES</div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($perfectFiveThisGw !== null): ?>
+        <?php
+            $pfMatchNames = [];
+            foreach ($matches as $pfm) {
+                if (in_array((int)$pfm['id'], $perfectFiveThisGw['match_ids'], true)) {
+                    $pfMatchNames[] = $pfm['home_team'] . ' vs ' . $pfm['away_team'];
+                }
+            }
+        ?>
+        <div class="mb-7 rounded-2xl bg-gradient-to-r from-purple-500/20 via-pink-500/10 to-purple-500/20 border border-purple-400/30 p-5 md:p-6">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <div class="text-purple-300 font-black text-lg">
+                        <?php if ($is_viewing_other_user): ?><?= e($view_username) ?>'S PERFECT FIVE<?php else: ?>PERFECT FIVE ACTIVE<?php endif; ?>
+                    </div>
+                    <p class="text-gray-300 mt-1 text-sm"><?= e(implode(' • ', $pfMatchNames)) ?></p>
+                </div>
+                <div class="inline-flex items-center justify-center px-5 py-2.5 rounded-full font-black self-start md:self-auto <?= $perfectFiveThisGw['status'] === 'active' ? 'bg-white/10 text-gray-300' : ($perfectFiveThisGw['result'] === 'doubled' ? 'bg-green-400 text-black' : 'bg-red-500 text-white') ?>">
+                    <?php if ($perfectFiveThisGw['status'] === 'active'): ?>
+                        Pending result
+                    <?php elseif ($perfectFiveThisGw['result'] === 'doubled'): ?>
+                        Doubled! +<?= (int)$perfectFiveThisGw['points_awarded'] ?> pts
+                    <?php else: ?>
+                        Busted - 0 pts
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <?php if (!$is_viewing_other_user): ?>
+        <div class="max-w-6xl mx-auto mb-10">
+            <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 md:p-7">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl sm:text-2xl font-black text-white">Ships</h2>
+                    <span class="text-xs text-gray-400 font-bold">2 uses each per season - 1 per half</span>
+                </div>
+
+                <?php if ($shipsMessage): ?>
+                    <div class="mb-4 rounded-xl bg-green-500/10 border border-green-500/30 text-green-300 px-4 py-3 text-sm font-bold"><?= e($shipsMessage) ?></div>
+                <?php endif; ?>
+                <?php if ($shipsError): ?>
+                    <div class="mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 text-sm font-bold"><?= e($shipsError) ?></div>
+                <?php endif; ?>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <?php foreach ($shipsCatalog as $code => $info): ?>
+                        <?php
+                            $half1 = $shipsUsage[$code][1] ?? null;
+                            $half2 = $shipsUsage[$code][2] ?? null;
+                            [$canUse, $cantReason] = shipsCanActivate($conn, $view_user_id, $code, $gameweek);
+                        ?>
+                        <div class="bg-black/30 border border-white/10 rounded-xl p-4">
+                            <div class="font-black text-white"><?= e($info['name']) ?></div>
+                            <p class="text-gray-400 text-xs mt-1"><?= e($info['description']) ?></p>
+
+                            <div class="flex gap-2 mt-3 text-[10px] font-bold">
+                                <span class="px-2 py-1 rounded-lg <?= $half1 ? 'bg-white/10 text-gray-400' : 'bg-green-500/10 text-green-300' ?>">
+                                    1st Half: <?= $half1 ? ('Used GW' . (int)$half1['gameweek']) : 'Available' ?>
+                                </span>
+                                <span class="px-2 py-1 rounded-lg <?= $half2 ? 'bg-white/10 text-gray-400' : 'bg-green-500/10 text-green-300' ?>">
+                                    2nd Half: <?= $half2 ? ('Used GW' . (int)$half2['gameweek']) : 'Available' ?>
+                                </span>
+                            </div>
+
+                            <div class="mt-3">
+                                <?php if ($code === 'DOUBLE_ALL'): ?>
+                                    <form method="POST" onsubmit="return confirm('Activate Double Up for Gameweek <?= $gameweek ?>? Every match will be worth double points and your normal Double Pick will be cleared.');">
+                                        <input type="hidden" name="gameweek" value="<?= $gameweek ?>">
+                                        <input type="hidden" name="activate_ship" value="DOUBLE_ALL">
+                                        <button type="submit" <?= $canUse ? '' : 'disabled title="' . e($cantReason) . '"' ?> class="w-full px-4 py-2 rounded-lg font-black text-xs transition <?= $canUse ? 'bg-gradient-to-br from-yellow-300 to-yellow-400 text-[#160018] hover:-translate-y-0.5 hover:shadow-lg' : 'bg-white/5 text-gray-500 border border-white/10 opacity-60 cursor-not-allowed' ?>">
+                                            <?= $canUse ? 'Activate Double Up' : 'Not Available' ?>
+                                        </button>
+                                    </form>
+                                <?php else: ?>
+                                    <?php if ($canUse): ?>
+                                        <a href="ships_five_picks.php?gameweek=<?= $gameweek ?>" class="block text-center w-full px-4 py-2 rounded-lg font-black text-xs bg-gradient-to-br from-purple-400 to-pink-500 text-white transition hover:-translate-y-0.5 hover:shadow-lg">Pick Your Five</a>
+                                    <?php else: ?>
+                                        <button type="button" disabled title="<?= e($cantReason) ?>" class="w-full px-4 py-2 rounded-lg font-black text-xs bg-white/5 text-gray-500 border border-white/10 opacity-60 cursor-not-allowed">Not Available</button>
+                                    <?php endif; ?>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
             </div>
         </div>
     <?php endif; ?>
@@ -872,10 +1078,12 @@
     ?>
 
                 <?php
-
                 $match_id = (int)$match['id'];
 
                 $is_double = $current_double === $match_id;
+
+                $is_perfect_five_pick = $perfectFiveThisGw !== null
+                    && in_array($match_id, $perfectFiveThisGw['match_ids'], true);
 
                 $home_logo = teamLogo($match['home_team'], $conn);
                 $away_logo = teamLogo($match['away_team'], $conn);
@@ -885,14 +1093,32 @@
 
                 $has_prediction = $predicted_home !== null && $predicted_away !== null;
 
+                // score_exact.points is already the FINAL points for this
+                // match (points_helper.php doubles it once when this match
+                // is the user's Double Pick). Never multiply it again here.
+                $display_points = $match['points'];
+
                 ?>
 
-                <div class="bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden border border-white/10 shadow-[0_4px_15px_rgba(0,0,0,0.3)] <?= $is_double ? 'border-2 border-yellow-300/60 shadow-[0_0_0_1px_rgba(255,216,107,0.08),0_0_15px_rgba(255,216,107,0.14)]' : '' ?>">
+                               <div class="bg-white/5 backdrop-blur-xl rounded-xl overflow-hidden border border-white/10 shadow-[0_4px_15px_rgba(0,0,0,0.3)] <?= $is_double ? 'border-2 border-yellow-300/60 shadow-[0_0_0_1px_rgba(255,216,107,0.08),0_0_15px_rgba(255,216,107,0.14)]' : ($is_perfect_five_pick ? 'border-2 border-purple-400/60 shadow-[0_0_0_1px_rgba(192,132,252,0.08),0_0_15px_rgba(192,132,252,0.14)]' : '') ?>">
 
                     <?php if ($is_double): ?>
                         <div class="bg-yellow-400 text-black px-4 py-1 flex flex-col sm:flex-row justify-between items-center gap-1 font-black text-xs">
                             <span>DOUBLE PICK</span>
                             <span class="text-[10px] opacity-80">2× points</span>
+                        </div>
+                    <?php elseif ($is_perfect_five_pick): ?>
+                        <div class="bg-purple-400 text-black px-4 py-1 flex flex-col sm:flex-row justify-between items-center gap-1 font-black text-xs">
+                            <span>PERFECT FIVE</span>
+                            <span class="text-[10px] opacity-80">
+                                <?php if ($perfectFiveThisGw['status'] === 'active'): ?>
+                                    pending
+                                <?php elseif ($perfectFiveThisGw['result'] === 'doubled'): ?>
+                                    2× points
+                                <?php else: ?>
+                                    0 points
+                                <?php endif; ?>
+                            </span>
                         </div>
                     <?php endif; ?>
 
@@ -906,7 +1132,8 @@
                             <div class="flex flex-col items-center gap-1 text-center w-1/3">
                                 <span class="text-[9px] font-black uppercase tracking-wider text-blue-400">HOME</span>
                                 <?php if ($home_logo): ?>
-                                    <img src="<?= e($home_logo) ?>" alt="<?= e($match['home_team']) ?>" class="w-14 h-14 object-contain drop-shadow">
+                                    <img src="<?= e($home_logo) ?>" alt="<?= e($match['home_team']) ?>" class="w-14 h-14 object-contain drop-shadow" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                                    <div class="w-14 h-14 hidden items-center justify-center bg-white/10 rounded-full text-gray-400 font-black text-lg"><?= e(mb_strtoupper(mb_substr((string)$match['home_team'], 0, 1))) ?></div>
                                 <?php else: ?>
                                     <div class="w-14 h-14 flex items-center justify-center bg-white/10 rounded-full text-gray-400 font-black text-lg">H</div>
                                 <?php endif; ?>
@@ -939,7 +1166,8 @@
                             <div class="flex flex-col items-center gap-1 text-center w-1/3">
                                 <span class="text-[9px] font-black uppercase tracking-wider text-pink-400">AWAY</span>
                                 <?php if ($away_logo): ?>
-                                    <img src="<?= e($away_logo) ?>" alt="<?= e($match['away_team']) ?>" class="w-14 h-14 object-contain drop-shadow">
+                                    <img src="<?= e($away_logo) ?>" alt="<?= e($match['away_team']) ?>" class="w-14 h-14 object-contain drop-shadow" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                                    <div class="w-14 h-14 hidden items-center justify-center bg-white/10 rounded-full text-gray-400 font-black text-lg"><?= e(mb_strtoupper(mb_substr((string)$match['away_team'], 0, 1))) ?></div>
                                 <?php else: ?>
                                     <div class="w-14 h-14 flex items-center justify-center bg-white/10 rounded-full text-gray-400 font-black text-lg">A</div>
                                 <?php endif; ?>
@@ -973,7 +1201,7 @@
                                 <div class="bg-white/5 rounded-lg p-2">
                                     <div class="text-[10px] text-gray-400 uppercase font-bold">Actual</div>
                                     <div class="text-base font-black mt-1">
-                                        <?php if ($is_locked && $match['home_score'] !== null && $match['away_score'] !== null): ?>
+                                        <?php if ($match['home_score'] !== null && $match['away_score'] !== null): ?>
                                             <?= (int)$match['home_score'] ?> - <?= (int)$match['away_score'] ?>
                                         <?php else: ?>
                                             -
@@ -983,7 +1211,7 @@
                                 <div class="bg-white/5 rounded-lg p-2 col-span-2">
                                     <div class="text-[10px] text-gray-400 uppercase font-bold">Status</div>
                                     <div class="mt-1">
-                                        <?php if ($is_locked && $match['home_score'] !== null && $match['away_score'] !== null): ?>
+                                        <?php if ($match['home_score'] !== null && $match['away_score'] !== null): ?>
                                             <?php if ($predictionStatus === 'exact'): ?>
                                                 <span class="inline-block px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 font-bold">Perfect</span>
                                             <?php elseif ($predictionStatus === 'correct'): ?>
@@ -1011,8 +1239,8 @@
                                 <div class="bg-white/5 rounded-lg p-2">
                                     <div class="text-[10px] text-gray-400 uppercase font-bold">Points</div>
                                     <div class="mt-1">
-                                        <?php if ($match['points'] !== null): ?>
-                                            <span class="font-black text-base"><?= (int)$match['points'] ?></span>
+                                        <?php if ($display_points !== null): ?>
+                                            <span class="font-black text-base"><?= (int)$display_points ?></span>
                                         <?php else: ?>
                                             <span class="text-gray-400">-</span>
                                         <?php endif; ?>
@@ -1021,10 +1249,16 @@
                             </div>
                         </div>
 
-                        <?php if (!$is_locked && !$is_viewing_other_user): ?>
+                        <?php if (!$is_viewing_other_user): ?>
                             <div class="mt-2 flex justify-center">
-                                <?php if ($is_double): ?>
+                                                                <?php if ($doubleAllActiveThisGw): ?>
+                                    <div class="text-[10px] text-yellow-300 text-center font-bold">Double Up ship active — this whole gameweek is already doubled</div>
+                                <?php elseif ($is_double): ?>
                                     <div class="inline-flex items-center gap-1 bg-yellow-400 text-black px-3 py-1 rounded-lg font-black text-xs">This is your Double Pick • 2× Points</div>
+                                <?php elseif ($is_locked): ?>
+                                    <button type="button" disabled title="Deadline passed" class="inline-flex items-center gap-1 bg-white/5 text-gray-500 px-3 py-1 rounded-lg font-black text-xs border border-white/10 opacity-60 cursor-not-allowed">
+                                        Double Pick (Deadline Passed)
+                                    </button>
                                 <?php elseif ($current_double === null): ?>
                                     <form method="POST" onsubmit="return confirm('Choose this match as your Double Pick? You can only select one Double Pick for this gameweek.');">
                                         <input type="hidden" name="gameweek" value="<?= $gameweek ?>">

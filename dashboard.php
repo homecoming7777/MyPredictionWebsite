@@ -8,11 +8,6 @@ if (!isset($_SESSION['user_id'])) {
 }
 $uid = (int)$_SESSION['user_id'];
 
-/*
-|--------------------------------------------------------------------------
-| HELPER: SAFE OUTPUT
-|--------------------------------------------------------------------------
-*/
 function e($value)
 {
     return htmlspecialchars(
@@ -34,7 +29,6 @@ $stmt->bind_param("i", $uid);
 $stmt->execute();
 $user = $stmt->get_result()->fetch_assoc() ?: ['username'=>'User','favorite_team'=>'—','avatar'=>'/PL_img/default-avatar.png'];
 $stmt->close();
-
 
 $first_gw = (int) fetch_one($conn, "SELECT MIN(gameweek) FROM matches WHERE home_score IS NOT NULL OR away_score IS NOT NULL");
 $last_gw  = (int) fetch_one($conn, "SELECT MAX(gameweek) FROM matches");
@@ -67,11 +61,9 @@ for ($g = $first_gw; $g <= $last_gw; $g++) {
 $chart_labels_js = json_encode($gw_labels);
 $chart_data_js = json_encode($gw_data);
 
-
 $current_points = (int) fetch_one($conn, "
     SELECT COALESCE(SUM(COALESCE(points,0)),0) FROM score_exact WHERE user_id = $uid
 ");
-
 
 $prev_points = 0;
 if ($prev_gw >= $first_gw) {
@@ -115,7 +107,6 @@ foreach ($leaders as $l) {
     if ((int)$l['id'] === $uid) { $current_rank = $l['pos']; break; }
 }
 
-
 if ($prev_gw >= $first_gw) {
     $prev_rank = (int) fetch_one($conn, "
       SELECT COUNT(*)+1 FROM (
@@ -136,7 +127,6 @@ if ($prev_gw >= $first_gw) {
 } else { $prev_rank = $current_rank; }
 
 $rank_diff = $prev_rank - $current_rank;
-
 
 $badge = 'bronze';
 if ($current_rank <= 3) $badge = 'gold';
@@ -174,17 +164,12 @@ $leaders_display = array_slice($leaders, 0, 5);
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>Dashboard | Premier League</title>
-
+<link rel="icon" type="image/jpg" href="PL_img/hadi.jpg">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-/*
-|--------------------------------------------------------------------------
-| VARIABLES
-|--------------------------------------------------------------------------
-*/
 :root {
     --pl-dark: #0a0015;
     --pl-purple: #16002b;
@@ -194,13 +179,8 @@ $leaders_display = array_slice($leaders, 0, 5);
     --card: rgba(255,255,255,.05);
 }
 
-/*
-|--------------------------------------------------------------------------
-| BODY (Using the uploaded Image as Background)
-|--------------------------------------------------------------------------
-*/
 body {
-    background-image: url('PL_img/current.jpg'); /* <--- Change this if your image is named differently */
+    background-image: url('PL_img/current.jpg');
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
@@ -209,7 +189,6 @@ body {
     min-height: 100vh;
 }
 
-/* Semi-transparent overlay to make text readable against the bright background */
 body::before {
     content: "";
     position: fixed;
@@ -222,11 +201,6 @@ body::before {
     pointer-events: none;
 }
 
-/*
-|--------------------------------------------------------------------------
-| GLASS CARD
-|--------------------------------------------------------------------------
-*/
 .card {
     background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02));
     border: 1px solid rgba(255,255,255,.10);
@@ -234,21 +208,11 @@ body::before {
     box-shadow: 0 12px 35px rgba(0,0,0,.50);
 }
 
-/*
-|--------------------------------------------------------------------------
-| ACCENT BORDER (for the profile card)
-|--------------------------------------------------------------------------
-*/
 .accent-border {
     border: 1px solid rgba(255,0,128,.40);
     box-shadow: 0 0 35px rgba(255,0,128,.15);
 }
 
-/*
-|--------------------------------------------------------------------------
-| TABLE ROW HOVER
-|--------------------------------------------------------------------------
-*/
 .table-row {
     transition: all .2s ease;
 }
@@ -257,39 +221,19 @@ body::before {
     transform: translateX(-2px);
 }
 
-/*
-|--------------------------------------------------------------------------
-| AVATAR RING
-|--------------------------------------------------------------------------
-*/
 .avatar-ring {
     border: 3px solid rgba(255,0,128,.55);
     box-shadow: 0 0 30px rgba(255,0,128,.25);
 }
 
-/*
-|--------------------------------------------------------------------------
-| BADGE GLOW
-|--------------------------------------------------------------------------
-*/
 .badge-glow {
     box-shadow: 0 0 22px rgba(255,0,128,.35);
 }
 
-/*
-|--------------------------------------------------------------------------
-| GLOW
-|--------------------------------------------------------------------------
-*/
 .text-glow {
     text-shadow: 0 0 18px rgba(255,215,0,.60);
 }
 
-/*
-|--------------------------------------------------------------------------
-| NAV
-|--------------------------------------------------------------------------
-*/
 .nav-link {
     transition: .2s ease;
 }
@@ -297,11 +241,6 @@ body::before {
     color: #ff0080;
 }
 
-/*
-|--------------------------------------------------------------------------
-| CHART WRAPPER
-|--------------------------------------------------------------------------
-*/
 .chart-wrapper {
     height: 200px;
 }
@@ -311,22 +250,12 @@ body::before {
     }
 }
 
-/*
-|--------------------------------------------------------------------------
-| STANDINGS WIDGET OVERRIDE
-|--------------------------------------------------------------------------
-*/
 .standings-wrap {
     border-radius: 20px;
     overflow: hidden;
     box-shadow: 0 0 30px rgba(0,0,0,.3);
 }
 
-/*
-|--------------------------------------------------------------------------
-| BUTTONS / BADGES
-|--------------------------------------------------------------------------
-*/
 .btn-pink {
     background: linear-gradient(135deg, #ff0080, #e90052);
     color: #fff;
@@ -345,41 +274,7 @@ body::before {
 </head>
 
 <body class="min-h-screen pb-16">
-
-<!-- =========================================================
-     NAVBAR (consistent with all pages)
-========================================================= -->
-<nav class="fixed top-0 left-0 right-0 z-50 bg-black/60 backdrop-blur-xl border-b border-white/10 px-5 md:px-8 py-4 flex justify-between items-center">
-
-    <!-- LOGO -->
-    <a href="dashboard.php" class="flex items-center gap-3">
-        <div class="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden">
-            <img src="PL_img/PL_LOGO1.png" class="w-full h-full object-contain" alt="Premier League">
-        </div>
-        <span class="font-black text-lg text-white">Premier League</span>
-    </a>
-
-    <!-- DESKTOP NAV -->
-    <div class="hidden md:flex items-center gap-7 text-sm font-bold">
-        <a href="dashboard.php" class="text-pink-400 text-pink-glow">Dashboard</a>
-        <a href="predictions.php" class="nav-link text-gray-300">Predictions</a>
-        <a href="leaderboard.php" class="nav-link text-gray-300">Leaderboard</a>
-        <a href="my_predictions.php" class="nav-link text-gray-300">My Predictions</a>
-    </div>
-
-    <!-- RIGHT: Avatar + Mobile toggle -->
-    <div class="flex items-center gap-4">
-        <a href="profile.php" class="hidden md:flex items-center gap-3">
-            <img src="<?= e($user['avatar']) ?>" alt="avatar"
-                 class="w-10 h-10 rounded-full object-cover avatar-ring">
-            <span class="text-sm font-bold text-gray-300"><?= e($user['username']) ?></span>
-        </a>
-
-        <button onclick="toggleMenu()" class="md:hidden text-lg px-2 font-bold text-white">Menu</button>
-    </div>
-
-</nav>
-  <a href="https://chat.whatsapp.com/LNHtFf9puEbLLbFOxL9cPb?s=cl&p=a&mlu=4" 
+<a href="https://chat.whatsapp.com/LNHtFf9puEbLLbFOxL9cPb?s=cl&p=a&mlu=4" 
      target="_blank" 
      rel="noopener noreferrer"
      class="fixed right-0 top-1/2 -translate-y-1/2 z-50 bg-[#25D366] text-white rounded-l-full px-3 py-5 shadow-2xl hover:bg-[#1faf54] flex flex-col items-center gap-3 transition-all duration-300 hover:pr-5 group">
@@ -392,8 +287,33 @@ body::before {
       Join Group
     </span>
   </a>
+<nav class="fixed top-0 left-0 right-0 z-50 bg-black/60 backdrop-blur-xl border-b border-white/10 px-5 md:px-8 py-4 flex justify-between items-center">
 
-</body>
+    <a href="dashboard.php" class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden">
+            <img src="PL_img/PL_LOGO1.png" class="w-full h-full object-contain" alt="Premier League">
+        </div>
+        <span class="font-black text-lg text-white">Premier League</span>
+    </a>
+
+    <div class="hidden md:flex items-center gap-7 text-sm font-bold">
+        <a href="dashboard.php" class="text-pink-400 text-pink-glow">Dashboard</a>
+        <a href="predictions.php" class="nav-link text-gray-300">Predictions</a>
+        <a href="leaderboard.php" class="nav-link text-gray-300">Leaderboard</a>
+        <a href="my_predictions.php" class="nav-link text-gray-300">My Predictions</a>
+    </div>
+
+    <div class="flex items-center gap-4">
+        <a href="profile.php" class="hidden md:flex items-center gap-3">
+            <img src="<?= e($user['avatar']) ?>" alt="avatar"
+                 class="w-10 h-10 rounded-full object-cover avatar-ring">
+            <span class="text-sm font-bold text-gray-300"><?= e($user['username']) ?></span>
+        </a>
+
+        <button onclick="toggleMenu()" class="md:hidden text-lg px-2 font-bold text-white">Menu</button>
+    </div>
+
+</nav>
 
 <div id="mobileMenu" class="hidden fixed top-[73px] left-0 right-0 z-40 bg-black/90 backdrop-blur-xl border-b border-white/10 p-6">
     <div class="flex flex-col gap-5 font-bold">
@@ -412,12 +332,8 @@ function toggleMenu() {
 
 <div class="h-24"></div>
 
-<!-- =========================================================
-     MAIN
-========================================================= -->
 <main class="max-w-7xl mx-auto px-4">
 
-    <!-- PAGE HEADER -->
     <div class="flex flex-col md:flex-row justify-between items-center gap-6 mb-8">
         <div class="flex items-center gap-4">
             <div class="w-16 h-16 rounded-full p-2 flex items-center justify-center bg-white/5 border border-white/10">
@@ -430,7 +346,6 @@ function toggleMenu() {
             </div>
         </div>
 
-        <!-- Quick stats -->
         <div class="flex gap-4">
             <div class="card rounded-2xl px-6 py-4 text-center">
                 <div class="text-xs text-gray-500 font-black uppercase">Points</div>
@@ -443,13 +358,9 @@ function toggleMenu() {
         </div>
     </div>
 
-    <!-- =========================================================
-         PROFILE CARD
-    ========================================================= -->
     <div class="card accent-border rounded-3xl p-6 md:p-8 mb-8">
         <div class="flex flex-col md:flex-row items-center gap-6">
 
-            <!-- Avatar -->
             <div class="relative flex-shrink-0">
                 <img src="<?= e($user['avatar']) ?>" alt="avatar"
                      class="w-24 h-24 md:w-28 md:h-28 rounded-full object-cover avatar-ring">
@@ -460,7 +371,6 @@ function toggleMenu() {
                 </div>
             </div>
 
-            <!-- Info -->
             <div class="flex-1 text-center md:text-left">
                 <h2 class="text-3xl font-black text-white"><?= e($user['username']) ?></h2>
                 <p class="text-gray-400 mt-1">
@@ -476,7 +386,6 @@ function toggleMenu() {
                 </div>
             </div>
 
-            <!-- Points big -->
             <div class="flex-shrink-0 bg-gradient-to-r from-pink-500 to-orange-400 text-black px-8 py-4 rounded-2xl font-black text-center shadow-lg shadow-pink-500/20">
                 <div class="text-3xl text-white"><?= $current_points ?></div>
                 <div class="text-xs uppercase tracking-wider text-white/90">Total Points</div>
@@ -485,9 +394,6 @@ function toggleMenu() {
         </div>
     </div>
 
-    <!-- =========================================================
-         STANDINGS WIDGET (MOVED UP)
-    ========================================================= -->
     <div class="card rounded-3xl p-6 mb-8">
         <div class="flex items-center justify-center mb-4">
             <h3 class="text-xl font-black text-white">Premier League Standings</h3>
@@ -506,15 +412,10 @@ function toggleMenu() {
         </div>
     </div>
 
-    <!-- =========================================================
-         MAIN GRID
-    ========================================================= -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <!-- LEFT COLUMN (2/3) -->
         <div class="lg:col-span-2 space-y-6">
 
-            <!-- CHART CARD -->
             <div class="card rounded-3xl p-6">
                 <div class="flex items-center justify-between mb-4">
                     <div>
@@ -528,7 +429,6 @@ function toggleMenu() {
                 </div>
             </div>
 
-            <!-- RECENT PERFORMANCE -->
             <div class="card rounded-3xl p-6">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-black text-white">Recent Performance</h3>
@@ -575,10 +475,8 @@ function toggleMenu() {
 
         </div>
 
-        <!-- RIGHT COLUMN (1/3) -->
         <aside class="space-y-6">
 
-            <!-- TOP PLAYERS -->
             <div class="card rounded-3xl p-6">
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="text-xl font-black text-white">Top Players</h3>
@@ -602,7 +500,6 @@ function toggleMenu() {
                 </ol>
             </div>
 
-            <!-- BADGE CARD -->
             <div class="card rounded-3xl p-6 text-center">
                 <h3 class="text-sm text-gray-500 font-black uppercase tracking-wider">Your Badge</h3>
                 <div class="mt-4">
@@ -620,7 +517,6 @@ function toggleMenu() {
                 <div class="text-sm text-gray-400 mt-3">Rank #<?= $current_rank ?? '—' ?></div>
             </div>
 
-            <!-- RANK PROGRESS -->
             <div class="card rounded-3xl p-6">
                 <h3 class="text-sm text-gray-500 font-black uppercase tracking-wider">Ranking Progress</h3>
                 <div class="mt-4">
@@ -644,7 +540,6 @@ function toggleMenu() {
 
     </div>
 
-    <!-- FOOTER -->
     <div class="text-center text-gray-600 text-sm mt-10">
         Premier League Prediction Dashboard
         <br>
@@ -653,12 +548,7 @@ function toggleMenu() {
 
 </main>
 
-<!-- =========================================================
-     CHART JAVASCRIPT (unchanged logic)
-========================================================= -->
 <script>
-    // Mobile toggle already defined above
-
     const labels = <?= $chart_labels_js ?>;
     const data = <?= $chart_data_js ?>;
     const ctx = document.getElementById('weeklyChart').getContext('2d');
@@ -707,7 +597,6 @@ function toggleMenu() {
         }
     });
 
-    // jQuery animation for table rows (unchanged)
     $(function(){
         $('.table-row').css({opacity:0, transform:'translateY(6px)'}).each(function(i){
             $(this).delay(i*40).animate({opacity:1, transform:'translateY(0)'}, 350);

@@ -7,11 +7,6 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-/*
-|--------------------------------------------------------------------------
-| HELPER: SAFE OUTPUT
-|--------------------------------------------------------------------------
-*/
 function e($value)
 {
     return htmlspecialchars(
@@ -123,9 +118,8 @@ $success_rate = $total > 0 ? round(($correct / $total) * 100, 2) : 0;
 <title>Profile | Premier League</title>
 
 <script src="https://cdn.tailwindcss.com"></script>
-
+<link rel="icon" type="image/jpg" href="PL_img/hadi.jpg">
 <style>
-    /* Only keeping essential CSS for background image and overlay */
     body {
         background-image: url('PL_img/current.jpg');
         background-size: cover;
@@ -142,7 +136,7 @@ $success_rate = $total > 0 ? round(($correct / $total) * 100, 2) : 0;
         left: 0;
         width: 100%;
         height: 100%;
-        background: rgba(10, 0, 21, 0.75); /* Deep Purple Tint */
+        background: rgba(10, 0, 21, 0.75);
         z-index: -1;
         pointer-events: none;
     }
@@ -152,12 +146,8 @@ $success_rate = $total > 0 ? round(($correct / $total) * 100, 2) : 0;
 
 <body class="min-h-screen pb-16 text-white">
 
-<!-- =========================================================
-     NAVBAR
-========================================================= -->
 <nav class="fixed top-0 left-0 right-0 z-50 bg-[#1c003a]/80 backdrop-blur-xl border-b border-[#ff0080]/30 px-5 md:px-8 py-4 flex justify-between items-center">
 
-    <!-- LOGO -->
     <a href="dashboard.php" class="flex items-center gap-3">
         <div class="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden">
             <img src="PL_img/PL_LOGO1.png" class="w-full h-full object-contain" alt="Premier League">
@@ -165,7 +155,6 @@ $success_rate = $total > 0 ? round(($correct / $total) * 100, 2) : 0;
         <span class="font-black text-lg text-white">Premier League</span>
     </a>
 
-    <!-- DESKTOP NAV -->
     <div class="hidden md:flex items-center gap-7 text-sm font-bold">
         <a href="dashboard.php" class="hover:text-[#ff9900] transition-colors">Dashboard</a>
         <a href="predictions.php" class="hover:text-[#ff9900] transition-colors">Predictions</a>
@@ -173,7 +162,6 @@ $success_rate = $total > 0 ? round(($correct / $total) * 100, 2) : 0;
         <a href="my_predictions.php" class="hover:text-[#ff9900] transition-colors">My Predictions</a>
     </div>
 
-    <!-- RIGHT: Avatar + Mobile toggle -->
     <div class="flex items-center gap-4">
         <a href="profile.php" class="hidden md:flex items-center gap-3">
             <img src="<?= e($user['avatar']) ?>" alt="avatar"
@@ -186,7 +174,6 @@ $success_rate = $total > 0 ? round(($correct / $total) * 100, 2) : 0;
 
 </nav>
 
-<!-- MOBILE MENU -->
 <div id="mobileMenu" class="hidden fixed top-[73px] left-0 right-0 z-40 bg-[#1c003a]/95 backdrop-blur-xl border-b border-[#ff0080]/30 p-6">
     <div class="flex flex-col gap-5 font-bold">
         <a href="dashboard.php" class="hover:text-[#ff9900] transition-colors">Dashboard</a>
@@ -204,12 +191,8 @@ function toggleMenu() {
 
 <div class="h-24"></div>
 
-<!-- =========================================================
-     MAIN
-========================================================= -->
 <main class="max-w-4xl mx-auto px-4">
 
-    <!-- PAGE HEADER -->
     <div class="flex flex-col md:flex-row justify-between items-center gap-6 mb-8">
         <div class="flex items-center gap-4">
             <div class="w-16 h-16 rounded-full p-2 flex items-center justify-center bg-white">
@@ -222,18 +205,13 @@ function toggleMenu() {
             </div>
         </div>
 
-        <!-- Quick link back to users -->
         <a href="users.php" class="text-sm text-gray-400 hover:text-white transition">
             Back to Users
         </a>
     </div>
 
-    <!-- =========================================================
-         PROFILE CARD
-    ========================================================= -->
     <div class="bg-[#1c003a]/80 backdrop-blur-xl border border-[#ff0080]/30 rounded-3xl p-6 md:p-8 mb-8 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
 
-        <!-- Avatar & basic info -->
         <div class="flex flex-col md:flex-row items-center gap-6">
 
             <div class="relative flex-shrink-0">
@@ -267,12 +245,8 @@ function toggleMenu() {
 
         </div>
 
-        <!-- =========================================================
-             EDIT SECTIONS (only for owner)
-        ========================================================= -->
         <?php if ($isOwner): ?>
 
-            <!-- Avatar upload -->
             <div class="mt-8 pt-6 border-t border-white/10">
                 <h3 class="text-lg font-black mb-4 text-white">Update Avatar</h3>
                 <form method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center gap-4">
@@ -284,7 +258,6 @@ function toggleMenu() {
                 </form>
             </div>
 
-            <!-- Username update -->
             <div class="mt-6 pt-6 border-t border-white/10">
                 <h3 class="text-lg font-black mb-4 text-white">Change Username</h3>
                 <form method="POST" class="flex flex-col sm:flex-row items-center gap-4">
@@ -300,7 +273,6 @@ function toggleMenu() {
                 <?php endif; ?>
             </div>
 
-            <!-- Favorite team update -->
             <div class="mt-6 pt-6 border-t border-white/10">
                 <h3 class="text-lg font-black mb-4 text-white">Change Favorite Team</h3>
                 <form method="POST" class="flex flex-col sm:flex-row items-center gap-4">
@@ -325,9 +297,6 @@ function toggleMenu() {
 
     </div>
 
-    <!-- =========================================================
-         STATISTICS CARD
-    ========================================================= -->
     <div class="bg-[#1c003a]/80 backdrop-blur-xl border border-[#ff0080]/30 rounded-3xl p-6 md:p-8 mb-8 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
         <h3 class="text-xl font-black mb-6 text-white">Statistics</h3>
 
@@ -347,16 +316,12 @@ function toggleMenu() {
         </div>
     </div>
 
-    <!-- =========================================================
-         DASHBOARD BUTTON
-    ========================================================= -->
     <div class="text-center">
         <a href="dashboard.php" class="inline-block bg-[#e90052] hover:bg-[#ff1a66] text-black px-8 py-4 rounded-xl text-lg font-black shadow-lg shadow-pink-500/20 transition hover:-translate-y-0.5">
             Back to Dashboard
         </a>
     </div>
 
-    <!-- FOOTER -->
     <div class="text-center text-gray-500 text-sm mt-10">
         Premier League Profile
         <br>

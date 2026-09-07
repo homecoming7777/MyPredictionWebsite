@@ -1,1 +1,9 @@
-.env
+myDatabase.sql
+Botola_Teams/
+Bundesliga_Teams/
+LaLiga_Teams/
+Ligue1_Teams/
+PL_img/
+PL_Teams/
+SerieA_Teams/
+uploads/
