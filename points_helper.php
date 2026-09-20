@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/rating_helper.php';
+
 /**
  * Central points helper - DOUBLE PICK ONLY.
  *
@@ -168,11 +170,18 @@ if (!function_exists('calculateFinalPoints')) {
         
         
     
-                if (function_exists('settlePerfectFiveForMatch')) {
+        if (function_exists('settlePerfectFiveForMatch')) {
             settlePerfectFiveForMatch($conn, $userId, $matchId);
         }
-    }
+
+        if (
+            $prediction['home_score'] !== null
+            && $prediction['away_score'] !== null
+            && function_exists('ratingUpdateForPrediction')
+        ) {
+            ratingUpdateForPrediction($conn, $userId, $matchId, $basePoints);
         }
+    }
 
     function syncUserPoints(
         mysqli $conn,
@@ -226,3 +235,4 @@ if (!function_exists('calculateFinalPoints')) {
             syncUserPoints($conn, (int)$user['id']);
         }
     }
+}

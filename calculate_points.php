@@ -3,38 +3,12 @@
 session_start();
 
 require_once 'connect.php';
+require_once 'admin_helper.php';
 require_once 'points_helper.php';
 require_once 'ships_helper.php';
+require_once 'rating_helper.php';
 
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
-    exit;
-}
-
-
-$isAdmin = false;
-
-if (isset($_SESSION['role'])) {
-
-    $isAdmin =
-        in_array(
-            strtolower(
-                (string)$_SESSION['role']
-            ),
-            [
-                'admin',
-                'super-admin',
-                'super_admin'
-            ],
-            true
-        );
-}
-
-if (!$isAdmin) {
-
-    http_response_code(403);
-    exit("Access denied.");
-}
+adminRequireAdmin($conn, false);
 
 
 $gameweek =

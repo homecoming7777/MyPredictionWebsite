@@ -1,6 +1,7 @@
 <?php
 session_start();
 include "connect.php";
+require_once "admin_helper.php";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = trim($_POST["email"]);
@@ -15,9 +16,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $user = $result->fetch_assoc();
 
         if (password_verify($password, $user["password"])) {
-            $_SESSION["user_id"] = $user["id"];
+            $_SESSION["user_id"] = (int)$user["id"];
             $_SESSION["username"] = $user["username"];
             $_SESSION["email"] = $email;
+            adminSyncSessionRole($conn, (int)$user["id"]);
+
+            $activityHelperFile = __DIR__ . "/activity_helper.php";
+            if (is_file($activityHelperFile)) {
+                require_once $activityHelperFile;
+                if (function_exists("activityRecordLogin")) {
+                    activityRecordLogin($conn, (int)$user["id"]);
+                }
+            }
+
             header("Location: choose_team.php");
             exit();
         } else {
@@ -36,13 +47,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
    <title>Login | Premier League Predictions</title>
    <script src="https://cdn.tailwindcss.com"></script>
    <style>
-     /* Background image and overlay to match the rest of the site */
      body {
        background-image: url('PL_img/current.jpg');
        background-size: cover;
        background-position: center;
        background-attachment: fixed;
-       background-color: #1c003a;
+       background-color: #1c0d3f;
        font-family: Arial, Helvetica, sans-serif;
      }
      
@@ -53,7 +63,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
        left: 0;
        width: 100%;
        height: 100%;
-       background: rgba(10, 0, 21, 0.75); /* Deep Purple Tint */
+       background: linear-gradient(135deg, rgba(28, 13, 63, 0.9), rgba(0, 138, 102, 0.9), rgba(0, 255, 135, 0.85));
        z-index: -1;
        pointer-events: none;
      }
@@ -61,9 +71,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 </head>
 <body class="flex items-center justify-center min-h-screen text-white">
 
-  <div class="bg-[#1c003a]/80 backdrop-blur-xl border border-[#ff0080]/30 shadow-2xl rounded-2xl p-8 sm:p-10 w-[90%] sm:w-[420px] text-center relative overflow-hidden">
+  <div class="bg-[#1c0d3f]/80 backdrop-blur-xl border border-[#00FF87]/30 shadow-2xl rounded-2xl p-8 sm:p-10 w-[90%] sm:w-[420px] text-center relative overflow-hidden">
     
-    <div class="absolute inset-0 rounded-2xl border-2 border-transparent bg-gradient-to-r from-[#e90052] via-[#ff0080] to-[#ff9900] opacity-20 blur-xl"></div>
+    <div class="absolute inset-0 rounded-2xl border-2 border-transparent bg-gradient-to-r from-[#1c0d3f] via-[#008A66] to-[#00FF87] opacity-20 blur-xl"></div>
 
     <div class="relative z-10">
       <img src="PL_img/PL_LOGO1.png" alt="PL Logo" class="w-20 h-20 mx-auto mb-5">
@@ -76,28 +86,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
       <form action="login.php" method="POST" class="space-y-6">
         
         <div class="text-left">
-          <label class="font-bold text-[#ff0080] uppercase text-sm">Email</label>
+          <label class="font-bold text-[#00FF87] uppercase text-sm">Email</label>
           <input 
-            class="mt-2 w-full px-4 py-2 bg-transparent border-b-2 border-[#e90052]/50 text-white outline-none focus:border-[#ff9900] transition-all duration-300 placeholder-gray-500"
+            class="mt-2 w-full px-4 py-2 bg-transparent border-b-2 border-[#008A66]/50 text-white outline-none focus:border-[#00FF87] transition-all duration-300 placeholder-gray-500"
             type="email" name="email" placeholder="example@email.com" required>
         </div>
 
         <div class="text-left">
-          <label class="font-bold text-[#ff0080] uppercase text-sm">Password</label>
+          <label class="font-bold text-[#00FF87] uppercase text-sm">Password</label>
           <div class="relative mt-2">
             <input 
               id="passwordInput"
-              class="w-full px-4 py-2 bg-transparent border-b-2 border-[#e90052]/50 text-white outline-none focus:border-[#ff9900] transition-all duration-300 placeholder-gray-500 pr-10"
+              class="w-full px-4 py-2 bg-transparent border-b-2 border-[#008A66]/50 text-white outline-none focus:border-[#00FF87] transition-all duration-300 placeholder-gray-500 pr-10"
               type="password" name="password" placeholder="********" required>
             
-            <!-- Show/Hide Password Button -->
-            <button type="button" onclick="togglePasswordVisibility()" class="absolute right-0 top-2 text-gray-400 hover:text-[#ff0080] focus:outline-none transition-colors">
-              <!-- Eye Icon (Show Password) -->
+            <button type="button" onclick="togglePasswordVisibility()" class="absolute right-0 top-2 text-gray-400 hover:text-[#00FF87] focus:outline-none transition-colors">
               <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
-              <!-- Eye Off Icon (Hide Password) -->
               <svg id="eyeOffIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
               </svg>
@@ -106,19 +113,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </div>
 
         <button type="submit"
-          class="w-full mt-4 bg-gradient-to-r from-[#e90052] to-[#ff9900] text-white py-3 rounded-xl font-black text-lg uppercase tracking-wide shadow-lg transition transform hover:scale-105 hover:shadow-[0_8px_25px_rgba(233,0,82,0.30)]">
+          class="w-full mt-4 bg-gradient-to-r from-[#008A66] to-[#00FF87] text-[#1c0d3f] py-3 rounded-xl font-black text-lg uppercase tracking-wide shadow-lg transition transform hover:scale-105 hover:shadow-[0_8px_25px_rgba(0,255,135,0.30)]">
           Login
         </button>
 
         <p class="mt-4 text-gray-300 text-sm">
           Don't have an account? 
-          <a href="register.php" class="text-[#ff9900] font-bold hover:underline">Create one</a>
+          <a href="register.php" class="text-[#00FF87] font-bold hover:underline">Create one</a>
         </p>
       </form>
     </div>
   </div>
 
-  <!-- JavaScript to toggle password visibility -->
   <script>
     function togglePasswordVisibility() {
       const passwordInput = document.getElementById('passwordInput');

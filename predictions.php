@@ -4,6 +4,7 @@ session_start();
 
 include 'connect.php';
 require_once 'gameweek_deadline.php';
+require_once 'match_difficulty_helper.php';
 
 date_default_timezone_set('Africa/Casablanca');
 
@@ -21,6 +22,99 @@ function e($value)
         ENT_QUOTES,
         'UTF-8'
     );
+}
+
+function getPredictionTeamLast5($conn, $teamName, $fixtureDate)
+{
+    $matches = [];
+
+    $sql = "
+        SELECT
+            home_team,
+            away_team,
+            home_score,
+            away_score,
+            match_date,
+            competition
+        FROM matches
+        WHERE competition = 'Premier League'
+          AND home_score IS NOT NULL
+          AND away_score IS NOT NULL
+          AND match_date < ?
+          AND (home_team = ? OR away_team = ?)
+        ORDER BY match_date DESC
+        LIMIT 5
+    ";
+
+    $stmt = $conn->prepare($sql);
+
+    if (!$stmt) {
+        return $matches;
+    }
+
+    $stmt->bind_param(
+        "sss",
+        $fixtureDate,
+        $teamName,
+        $teamName
+    );
+
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    while ($row = $result->fetch_assoc()) {
+        $isHome = strcasecmp((string)$row['home_team'], (string)$teamName) === 0;
+
+        $goalsFor = $isHome
+            ? (int)$row['home_score']
+            : (int)$row['away_score'];
+
+        $goalsAgainst = $isHome
+            ? (int)$row['away_score']
+            : (int)$row['home_score'];
+
+        if ($goalsFor > $goalsAgainst) {
+            $letter = 'W';
+        } elseif ($goalsFor < $goalsAgainst) {
+            $letter = 'L';
+        } else {
+            $letter = 'D';
+        }
+
+        $matches[] = [
+            'opponent' => $isHome ? $row['away_team'] : $row['home_team'],
+            'goals_for' => $goalsFor,
+            'goals_against' => $goalsAgainst,
+            'date' => $row['match_date'],
+            'competition' => $row['competition'],
+            'is_home' => $isHome,
+            'letter' => $letter,
+        ];
+    }
+
+    $stmt->close();
+
+    return $matches;
+}
+
+function predictionResultBadgeClass($letter)
+{
+    if ($letter === 'W') {
+        return 'bg-[#00e07a]/20 text-[#00e07a] border-[#00e07a]/40';
+    }
+
+    if ($letter === 'L') {
+        return 'bg-red-500/20 text-red-400 border-red-500/40';
+    }
+
+    return 'bg-gray-400/20 text-gray-300 border-gray-400/40';
+}
+
+function predictionFormatDate($rawDate)
+{
+    $ts = strtotime((string)$rawDate);
+
+    return $ts ? date('D, d M Y • H:i', $ts) : 'Date unknown';
 }
 
 $latest_sql = "
@@ -98,6 +192,18 @@ $stmt->execute();
 
 $result = $stmt->get_result();
 
+$matches = [];
+
+while ($row = $result->fetch_assoc()) {
+    $matches[] = $row;
+}
+
+$matchIds = array_map(static function ($match) {
+    return (int)($match['id'] ?? 0);
+}, $matches);
+
+$difficultyBatch = difficultyGetBatchForMatches($conn, $matchIds);
+
 ?>
 
 <!DOCTYPE html>
@@ -137,10 +243,10 @@ body {
         fixed;
 
     background-color:
-        #1c003a;
+        #0d0620;
 
     color:
-        #f7f2fa;
+        #e4f2ec;
 
     font-family:
         Arial,
@@ -169,7 +275,12 @@ body::before {
         100%;
 
     background:
-        rgba(28, 0, 58, 0.65);
+        linear-gradient(
+            135deg,
+            rgba(13, 6, 32, 0.96),
+            rgba(0, 60, 45, 0.92),
+            rgba(0, 90, 50, 0.90)
+        );
 
     z-index:
         -1;
@@ -191,10 +302,10 @@ body::before {
         left-0
         right-0
         z-50
-        bg-[#1c003a]/80
+        bg-black/80
         backdrop-blur-xl
         border-b
-        border-[#ff0080]/30
+        border-[#00e07a]/20
         px-5
         md:px-8
         py-4
@@ -254,30 +365,35 @@ body::before {
 
 <a
     href="dashboard.php"
-    class="hover:text-[#ff9900] transition-colors"
+    class="text-gray-400 hover:text-[#00e07a] transition-colors"
 >
     Dashboard
 </a>
 
 <a
     href="predictions.php"
-    class="text-[#ff0080]"
+    class="text-[#00e07a]"
 >
     Predictions
 </a>
 
 <a
     href="leaderboard.php"
-    class="hover:text-[#ff9900] transition-colors"
+    class="text-gray-400 hover:text-[#00e07a] transition-colors"
 >
     Leaderboard
 </a>
 
 <a
     href="my_predictions.php"
-    class="hover:text-[#ff9900] transition-colors"
+    class="text-gray-400 hover:text-[#00e07a] transition-colors"
 >
     My Predictions
+</a>
+<a href="team_stats.php"
+    class="text-gray-400 hover:text-[#00e07a] transition-colors"
+>
+    Team Stats
 </a>
 
 </div>
@@ -305,10 +421,10 @@ body::before {
         left-0
         right-0
         z-40
-        bg-[#1c003a]/95
+        bg-black/95
         backdrop-blur-xl
         border-b
-        border-[#ff0080]/30
+        border-[#00e07a]/20
         p-6
     "
 >
@@ -328,7 +444,7 @@ body::before {
 
 <a
     href="predictions.php"
-    class="text-[#ff0080]"
+    class="text-[#00e07a]"
 >
     Predictions
 </a>
@@ -339,6 +455,10 @@ body::before {
 
 <a href="my_predictions.php">
     My Predictions
+</a>
+
+<a href="team_stats.php">
+    Team Stats
 </a>
 
 </div>
@@ -411,7 +531,7 @@ function toggleMenu()
 
 <div
     class="
-        text-[#ff0080]
+        text-[#00e07a]
         text-sm
         font-black
         uppercase
@@ -434,7 +554,7 @@ function toggleMenu()
 
 <p
     class="
-        text-gray-300
+        text-gray-500
         mt-1
     "
 >
@@ -442,7 +562,7 @@ function toggleMenu()
 Premier League
 
 <span
-    class="text-gray-500"
+    class="text-gray-600"
 >
     •
 </span>
@@ -469,7 +589,7 @@ Gameweek <?= e($gameweek) ?>
     class="
         text-sm
         font-bold
-        text-gray-300
+        text-gray-400
     "
 >
     Gameweek
@@ -480,9 +600,9 @@ Gameweek <?= e($gameweek) ?>
     name="gameweek"
     onchange="this.form.submit()"
     class="
-        bg-[#1c003a]
+        bg-[#0d0620]
         border
-        border-[#ff0080]
+        border-[#00e07a]
         text-white
         rounded-xl
         px-4
@@ -530,11 +650,11 @@ while ($w = $weeks->fetch_assoc()):
 
 <div
     class="
-        bg-[#1c003a]/85
+        bg-[#0d0620]/80
         backdrop-blur-md
         border
-        border-[#ff0080]/30
-        shadow-[0_0_40px_rgba(233,0,82,0.25)]
+        border-[#00e07a]/20
+        shadow-[0_0_40px_rgba(0,224,122,0.15)]
         rounded-3xl
         p-6
         md:p-8
@@ -586,7 +706,7 @@ while ($w = $weeks->fetch_assoc()):
 
 <p
     class="
-        text-gray-300
+        text-gray-400
         text-lg
         leading-relaxed
     "
@@ -606,7 +726,7 @@ has passed.
 
 <p
     class="
-        text-gray-400
+        text-gray-500
         mt-4
     "
 >
@@ -637,9 +757,9 @@ You can no longer submit predictions for this gameweek.
     class="
         inline-flex
         mt-8
-        bg-[#ff0080]
-        hover:bg-[#ff9900]
-        text-white
+        bg-[#00e07a]
+        hover:bg-[#00b862]
+        text-[#0d0620]
         px-7
         py-3
         rounded-xl
@@ -657,13 +777,13 @@ You can no longer submit predictions for this gameweek.
 <div
     id="countdown"
     class="
-        bg-[#ff9900]/20
+        bg-[#00e07a]/10
         border
-        border-[#ff9900]/30
+        border-[#00e07a]/30
         rounded-2xl
         p-4
         text-center
-        text-[#ff9900]
+        text-[#00e07a]
         font-bold
         text-lg
         mb-8
@@ -684,12 +804,12 @@ Predictions are currently open.
 
 </div>
 
-<?php if ($result->num_rows === 0): ?>
+<?php if (count($matches) === 0): ?>
 
 <p
     class="
         text-center
-        text-gray-300
+        text-gray-400
         text-lg
     "
 >
@@ -717,7 +837,7 @@ Predictions are currently open.
     value="<?= (int) $gameweek ?>"
 >
 
-<?php while ($match = $result->fetch_assoc()): ?>
+<?php foreach ($matches as $match): ?>
 
 <?php
 
@@ -733,6 +853,18 @@ $away_logo =
         '/'
     );
 
+$home_last5 = getPredictionTeamLast5(
+    $conn,
+    $match['home_team'],
+    $match['match_date']
+);
+
+$away_last5 = getPredictionTeamLast5(
+    $conn,
+    $match['away_team'],
+    $match['match_date']
+);
+
 ?>
 
 <div
@@ -745,7 +877,7 @@ $away_logo =
         overflow-hidden
         shadow-2xl
         border
-        border-[#ff0080]/20
+        border-[#00e07a]/20
         max-w-[650px]
         mx-auto
         mb-5
@@ -755,8 +887,8 @@ $away_logo =
 <div
     class="
         bg-gradient-to-br
-        from-[#1c003a]
-        to-[#4a0060]
+        from-[#0d0620]
+        to-[#1a0836]
         flex
         flex-row
         items-center
@@ -803,7 +935,7 @@ $away_logo =
         opacity-90
         mt-0.5
         md:mt-1.5
-        text-[#ff9900]
+        text-[#00e07a]
     "
 >
     HOME
@@ -859,15 +991,15 @@ $away_logo =
     class="
         bg-transparent
         border-b-4
-        border-[#e90052]
-        text-[#e90052]
+        border-[#008a66]
+        text-[#008a66]
         text-4xl
         font-black
         w-[70px]
         text-center
         outline-none
-        focus:border-[#ff9900]
-        focus:text-[#ff9900]
+        focus:border-[#00e07a]
+        focus:text-[#00e07a]
         read-only:border-gray-300
         read-only:text-gray-400
         appearance-none
@@ -881,7 +1013,7 @@ $away_logo =
     class="
         text-4xl
         font-black
-        text-[#e90052]
+        text-[#008a66]
     "
 >
     -
@@ -894,15 +1026,15 @@ $away_logo =
     class="
         bg-transparent
         border-b-4
-        border-[#e90052]
-        text-[#e90052]
+        border-[#008a66]
+        text-[#008a66]
         text-4xl
         font-black
         w-[70px]
         text-center
         outline-none
-        focus:border-[#ff9900]
-        focus:text-[#ff9900]
+        focus:border-[#00e07a]
+        focus:text-[#00e07a]
         read-only:border-gray-300
         read-only:text-gray-400
         appearance-none
@@ -919,8 +1051,8 @@ $away_logo =
 <div
     class="
         bg-gradient-to-br
-        from-[#e90052]
-        to-[#ff4b2b]
+        from-[#005c44]
+        to-[#008a66]
         flex
         flex-row
         items-center
@@ -967,7 +1099,7 @@ $away_logo =
         opacity-90
         mt-0.5
         md:mt-1.5
-        text-[#1c003a]
+        text-[#0d0620]
     "
 >
     AWAY
@@ -979,13 +1111,122 @@ $away_logo =
 
 </div>
 
+<?php
+$widget_match_id = (int)$match['id'];
+$widget_difficulty = $difficultyBatch[$widget_match_id] ?? difficultyGetForMatch($conn, $widget_match_id);
+require __DIR__ . '/difficulty_widget.php';
+?>
+
+<div class="max-w-[650px] mx-auto mt-3 text-center">
+    <button
+        type="button"
+        onclick="toggleLast5('last5_<?= (int)$match['id'] ?>', this)"
+        class="
+            inline-flex
+            items-center
+            gap-2
+            text-[#00e07a]
+            hover:text-[#00b862]
+            border
+            border-[#00e07a]/40
+            hover:border-[#00e07a]/60
+            rounded-full
+            px-5
+            py-1.5
+            text-sm
+            font-black
+            uppercase
+            tracking-wider
+            transition
+        "
+    >
+        <span class="icon">▼</span> Last 5
+    </button>
+</div>
+
+<div id="last5_<?= (int)$match['id'] ?>" class="hidden max-w-[650px] mx-auto mt-3">
+    <div class="bg-white/5 backdrop-blur-sm rounded-2xl p-5 border border-[#00e07a]/20">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <div class="text-center text-white font-bold text-sm mb-3">
+                    <?= e($match['home_team']) ?>
+                </div>
+                <?php if (empty($home_last5)): ?>
+                    <div class="text-center text-gray-400 text-sm">No completed matches</div>
+                <?php else: ?>
+                    <div class="flex items-center justify-center gap-2 flex-wrap">
+                        <?php foreach ($home_last5 as $last):
+                            $letter = $last['letter'];
+                            $opponent_abbr = substr($last['opponent'], 0, 3);
+                            $is_home = $last['is_home'];
+                            $score = (int)$last['goals_for'] . '–' . (int)$last['goals_against'];
+                            $full_title = ($is_home ? '🏠 Home vs ' : '✈️ Away vs ')
+                                          . $last['opponent']
+                                          . ' • ' . $score
+                                          . ' • ' . predictionFormatDate($last['date']);
+                        ?>
+                            <div class="flex flex-col items-center" title="<?= e($full_title) ?>">
+                                <span class="form-pill <?= predictionResultBadgeClass($letter) ?> !w-9 !h-9 !text-sm font-black flex items-center justify-center rounded-full shadow-md">
+                                    <?= e($letter) ?>
+                                </span>
+                                <span class="text-[10px] font-bold text-white/90 mt-1">
+                                    <?= $score ?>
+                                </span>
+                                <span class="text-[8px] font-semibold text-white/60 mt-0.5 flex items-center gap-1">
+                                    <span class="inline-block w-1.5 h-1.5 rounded-full <?= $is_home ? 'bg-[#00e07a]' : 'bg-yellow-400' ?>"></span>
+                                    <?= e($opponent_abbr) ?>
+                                </span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+
+            <div>
+                <div class="text-center text-white font-bold text-sm mb-3">
+                    <?= e($match['away_team']) ?>
+                </div>
+                <?php if (empty($away_last5)): ?>
+                    <div class="text-center text-gray-400 text-sm">No completed matches</div>
+                <?php else: ?>
+                    <div class="flex items-center justify-center gap-2 flex-wrap">
+                        <?php foreach ($away_last5 as $last):
+                            $letter = $last['letter'];
+                            $opponent_abbr = substr($last['opponent'], 0, 3);
+                            $is_home = $last['is_home'];
+                            $score = (int)$last['goals_for'] . '–' . (int)$last['goals_against'];
+                            $full_title = ($is_home ? '🏠 Home vs ' : '✈️ Away vs ')
+                                          . $last['opponent']
+                                          . ' • ' . $score
+                                          . ' • ' . predictionFormatDate($last['date']);
+                        ?>
+                            <div class="flex flex-col items-center" title="<?= e($full_title) ?>">
+                                <span class="form-pill <?= predictionResultBadgeClass($letter) ?> !w-9 !h-9 !text-sm font-black flex items-center justify-center rounded-full shadow-md">
+                                    <?= e($letter) ?>
+                                </span>
+                                <span class="text-[10px] font-bold text-white/90 mt-1">
+                                    <?= $score ?>
+                                </span>
+                                <span class="text-[8px] font-semibold text-white/60 mt-0.5 flex items-center gap-1">
+                                    <span class="inline-block w-1.5 h-1.5 rounded-full <?= $is_home ? 'bg-[#00e07a]' : 'bg-yellow-400' ?>"></span>
+                                    <?= e($opponent_abbr) ?>
+                                </span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
 <input
     type="hidden"
     name="match_id[]"
     value="<?= (int) $match['id'] ?>"
 >
 
-<?php endwhile; ?>
+<?php endforeach; ?>
 
 <div class="text-center mt-8">
 
@@ -993,18 +1234,18 @@ $away_logo =
     type="submit"
     class="
         bg-gradient-to-r
-        from-[#e90052]
-        to-[#ff9900]
-        hover:from-[#ff9900]
-        hover:to-[#e90052]
-        text-white
+        from-[#005c44]
+        to-[#00e07a]
+        hover:from-[#00e07a]
+        hover:to-[#005c44]
+        text-[#0d0620]
         px-12
         py-4
         rounded-xl
         font-black
         text-lg
         shadow-lg
-        shadow-[#e90052]/50
+        shadow-[#00e07a]/30
         transition
         transform
         hover:scale-105
@@ -1040,9 +1281,10 @@ $away_logo =
         items-center
         justify-center
         gap-2
-        bg-[#ff9900]
-        hover:bg-[#e90052]
+        bg-[#008a66]
+        hover:bg-[#00e07a]
         text-white
+        hover:text-[#0d0620]
         font-black
         px-6
         py-3
@@ -1060,8 +1302,8 @@ $away_logo =
         items-center
         justify-center
         gap-2
-        bg-white/10
-        hover:bg-white/20
+        bg-white/5
+        hover:bg-white/10
         border
         border-white/20
         text-white
@@ -1082,7 +1324,7 @@ $away_logo =
 <div
     class="
         text-center
-        text-gray-400
+        text-gray-500
         text-sm
         mt-10
     "
@@ -1183,6 +1425,22 @@ const timer =
 </script>
 
 <?php endif; ?>
+
+<script>
+function toggleLast5(id, btn) {
+    var container = document.getElementById(id);
+    if (!container) return;
+
+    var isHidden = container.classList.contains('hidden');
+    if (isHidden) {
+        container.classList.remove('hidden');
+        btn.innerHTML = '<span class="icon">▲</span> Hide Last 5';
+    } else {
+        container.classList.add('hidden');
+        btn.innerHTML = '<span class="icon">▼</span> Last 5';
+    }
+}
+</script>
 
 </body>
 

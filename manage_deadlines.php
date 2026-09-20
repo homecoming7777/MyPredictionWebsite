@@ -2,37 +2,12 @@
 
 session_start();
 require_once 'connect.php';
+require_once 'admin_helper.php';
 require_once 'gameweek_deadline.php';
 
 date_default_timezone_set('Africa/Casablanca');
 
-if (!isset($_SESSION['user_id'])) {
-    header('Location: login.php');
-    exit();
-}
-
-/*
-|--------------------------------------------------------------------------
-| ADMIN CHECK
-|--------------------------------------------------------------------------
-*/
-$isAdmin = false;
-
-if (isset($_SESSION['role'])) {
-    $isAdmin = in_array(
-        strtolower((string)$_SESSION['role']),
-        ['admin', 'super-admin', 'super_admin'],
-        true
-    );
-}
-
-if (
-    isset($_SESSION['role']) &&
-    !$isAdmin
-) {
-    http_response_code(403);
-    exit('Access denied.');
-}
+adminRequireAdmin($conn);
 
 $message = '';
 $messageType = '';

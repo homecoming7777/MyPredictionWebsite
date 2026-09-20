@@ -1,6 +1,8 @@
 <?php
 session_start();
 include 'connect.php';
+require_once 'analytics_helper.php';
+require_once 'rating_helper.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -96,16 +98,17 @@ if ($isOwner && $_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['favorite_t
     }
 }
 
-$sql2 = "SELECT COUNT(*) as total, SUM(is_correct) as correct 
-         FROM predictions WHERE user_id = ?";
-$stmt2 = $conn->prepare($sql2);
-$stmt2->bind_param("i", $user_id);
-$stmt2->execute();
-$stats = $stmt2->get_result()->fetch_assoc();
+$profileStats = analyticsGetProfileSummary($conn, (int)$user_id);
 
-$total = $stats['total'] ?? 0;
-$correct = $stats['correct'] ?? 0;
-$success_rate = $total > 0 ? round(($correct / $total) * 100, 2) : 0;
+$total = (int)($profileStats['total_predictions'] ?? 0);
+$exactScores = (int)($profileStats['exact_scores'] ?? 0);
+$correctResults = (int)($profileStats['correct_results'] ?? 0);
+$successful = (int)($profileStats['successful_predictions'] ?? 0);
+$totalPoints = (int)($profileStats['total_points'] ?? 0);
+$currentRank = $profileStats['current_rank'] ?? null;
+$predictionRating = (int)($profileStats['prediction_rating'] ?? 1500);
+$success_rate = (float)($profileStats['result_accuracy_pct'] ?? 0);
+$ratingTier = ratingGetTier($predictionRating);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -300,18 +303,45 @@ function toggleMenu() {
     <div class="bg-[#1c003a]/80 backdrop-blur-xl border border-[#ff0080]/30 rounded-3xl p-6 md:p-8 mb-8 shadow-[0_10px_30px_rgba(0,0,0,0.3)]">
         <h3 class="text-xl font-black mb-6 text-white">Statistics</h3>
 
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div class="bg-black/30 rounded-2xl p-5 text-center">
                 <div class="text-gray-500 text-xs uppercase font-black">Total Predictions</div>
-                <div class="text-3xl font-black text-white"><?= (int)$total ?></div>
+                <div class="text-3xl font-black text-white"><?= $total ?></div>
             </div>
             <div class="bg-black/30 rounded-2xl p-5 text-center">
-                <div class="text-gray-500 text-xs uppercase font-black">Correct</div>
-                <div class="text-3xl font-black text-green-400"><?= (int)$correct ?></div>
+                <div class="text-gray-500 text-xs uppercase font-black">Exact Scores</div>
+                <div class="text-3xl font-black text-green-400"><?= $exactScores ?></div>
+            </div>
+            <div class="bg-black/30 rounded-2xl p-5 text-center">
+                <div class="text-gray-500 text-xs uppercase font-black">Correct Results</div>
+                <div class="text-3xl font-black text-emerald-300"><?= $correctResults ?></div>
             </div>
             <div class="bg-black/30 rounded-2xl p-5 text-center">
                 <div class="text-gray-500 text-xs uppercase font-black">Success Rate</div>
                 <div class="text-3xl font-black text-[#ff9900]"><?= $success_rate ?>%</div>
+            </div>
+            <div class="bg-black/30 rounded-2xl p-5 text-center">
+                <div class="text-gray-500 text-xs uppercase font-black">Total Points</div>
+                <div class="text-3xl font-black text-[#ff0080]"><?= $totalPoints ?></div>
+            </div>
+            <div class="bg-black/30 rounded-2xl p-5 text-center">
+                <div class="text-gray-500 text-xs uppercase font-black">Current Rank</div>
+                <div class="text-3xl font-black text-white"><?= $currentRank !== null ? '#' . (int)$currentRank : 'N/A' ?></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <div class="bg-black/30 rounded-2xl p-5 text-center">
+                <div class="text-gray-500 text-xs uppercase font-black">Prediction Rating</div>
+                <div class="text-3xl font-black text-[#ffd700]"><?= $predictionRating ?></div>
+                <div class="inline-flex mt-2 px-3 py-1 rounded-full border text-xs font-black <?= e($ratingTier['badge_class']) ?>">
+                    <?= e($ratingTier['label']) ?>
+                </div>
+            </div>
+            <div class="bg-black/30 rounded-2xl p-5 text-center">
+                <div class="text-gray-500 text-xs uppercase font-black">Successful Predictions</div>
+                <div class="text-3xl font-black text-white"><?= $successful ?></div>
+                <div class="text-xs text-gray-500 mt-1">Exact + correct result (finished matches only)</div>
             </div>
         </div>
     </div>

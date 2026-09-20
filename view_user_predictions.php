@@ -4,15 +4,9 @@ session_start();
 
 require_once 'connect.php';
 require_once 'gameweek_deadline.php';
+require_once 'reactions_helper.php';
 
 date_default_timezone_set('Africa/Casablanca');
-
-
-/*
-|--------------------------------------------------------------------------
-| AUTHENTICATION
-|--------------------------------------------------------------------------
-*/
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -20,13 +14,6 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $current_user_id = (int) $_SESSION['user_id'];
-
-
-/*
-|--------------------------------------------------------------------------
-| PARAMETERS
-|--------------------------------------------------------------------------
-*/
 
 $selected_gw = isset($_GET['gameweek'])
     ? (int) $_GET['gameweek']
@@ -36,24 +23,10 @@ $view_user_id = isset($_GET['user_id'])
     ? (int) $_GET['user_id']
     : 0;
 
-
-/*
-|--------------------------------------------------------------------------
-| VALIDATE PARAMETERS
-|--------------------------------------------------------------------------
-*/
-
 if ($selected_gw <= 0 || $view_user_id <= 0) {
     header("Location: other_matches.php");
     exit;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| DON'T ALLOW USER TO OPEN HIS OWN VIEW PAGE
-|--------------------------------------------------------------------------
-*/
 
 if ($view_user_id === $current_user_id) {
     header(
@@ -62,13 +35,6 @@ if ($view_user_id === $current_user_id) {
     );
     exit;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| DEADLINE
-|--------------------------------------------------------------------------
-*/
 
 $gameweekDeadline = getGameweekDeadline(
     $conn,
@@ -80,13 +46,6 @@ $deadlinePassed = isGameweekDeadlinePassed(
     $selected_gw
 );
 
-
-/*
-|--------------------------------------------------------------------------
-| OTHER USERS' PREDICTIONS ARE ONLY AVAILABLE AFTER DEADLINE
-|--------------------------------------------------------------------------
-*/
-
 if (!$deadlinePassed) {
     header(
         "Location: other_matches.php?gameweek="
@@ -94,13 +53,6 @@ if (!$deadlinePassed) {
     );
     exit;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| ESCAPE FUNCTION
-|--------------------------------------------------------------------------
-*/
 
 function e($value)
 {
@@ -111,18 +63,6 @@ function e($value)
     );
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| TEAM LOGO
-|--------------------------------------------------------------------------
-|
-| THIS IS THE SAME LOGO SYSTEM USED BY YOUR WORKING
-| other_matches.php FILE.
-|
-|--------------------------------------------------------------------------
-*/
-
 function teamLogo($teamName)
 {
     $teamName = strtolower(trim((string) $teamName));
@@ -132,7 +72,6 @@ function teamLogo($teamName)
         ' ',
         $teamName
     );
-
 
     $logos = [
 
@@ -234,13 +173,6 @@ function teamLogo($teamName)
 
     ];
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | MAPPED LOGO
-    |--------------------------------------------------------------------------
-    */
-
     if (isset($logos[$teamName])) {
 
         $file = $logos[$teamName];
@@ -259,13 +191,6 @@ function teamLogo($teamName)
         }
     }
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | AUTOMATIC FILENAME FALLBACK
-    |--------------------------------------------------------------------------
-    */
-
     $safeName = preg_replace(
         '/[^a-z0-9]+/',
         '-',
@@ -277,7 +202,6 @@ function teamLogo($teamName)
         '-'
     );
 
-
     $possibleFiles = [
 
         $safeName . '.png',
@@ -285,7 +209,6 @@ function teamLogo($teamName)
         $safeName . '.jpeg',
 
     ];
-
 
     foreach ($possibleFiles as $file) {
 
@@ -296,7 +219,6 @@ function teamLogo($teamName)
             . DIRECTORY_SEPARATOR
             . $file;
 
-
         if (file_exists($fullPath)) {
 
             return 'PL_Teams/' . $file;
@@ -305,16 +227,8 @@ function teamLogo($teamName)
 
     }
 
-
     return null;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| GET VIEWED USER
-|--------------------------------------------------------------------------
-*/
 
 $user_stmt = $conn->prepare("
     SELECT
@@ -325,7 +239,6 @@ $user_stmt = $conn->prepare("
     LIMIT 1
 ");
 
-
 if (!$user_stmt) {
 
     die(
@@ -335,26 +248,20 @@ if (!$user_stmt) {
 
 }
 
-
 $user_stmt->bind_param(
     "i",
     $view_user_id
 );
 
-
 $user_stmt->execute();
-
 
 $user_result =
     $user_stmt->get_result();
 
-
 $view_user =
     $user_result->fetch_assoc();
 
-
 $user_stmt->close();
-
 
 if (!$view_user) {
 
@@ -367,21 +274,7 @@ if (!$view_user) {
 
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| GET PREDICTIONS
-|--------------------------------------------------------------------------
-|
-| We also retrieve home_team_pic and away_team_pic so that
-| the exact same fallback mechanism as other_matches.php
-| can be used.
-|
-|--------------------------------------------------------------------------
-*/
-
 $predictions = [];
-
 
 $prediction_sql = "
 
@@ -430,12 +323,10 @@ $prediction_sql = "
 
 ";
 
-
 $prediction_stmt =
     $conn->prepare(
         $prediction_sql
     );
-
 
 if (!$prediction_stmt) {
 
@@ -446,32 +337,21 @@ if (!$prediction_stmt) {
 
 }
 
-
 $prediction_stmt->bind_param(
     "ii",
     $view_user_id,
     $selected_gw
 );
 
-
 $prediction_stmt->execute();
-
 
 $prediction_result =
     $prediction_stmt->get_result();
-
 
 while (
     $row =
     $prediction_result->fetch_assoc()
 ) {
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | PREDICTION VALUES
-    |--------------------------------------------------------------------------
-    */
 
     $predicted_home =
         (int) $row['predicted_home'];
@@ -479,27 +359,12 @@ while (
     $predicted_away =
         (int) $row['predicted_away'];
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | POINT CALCULATION
-    |--------------------------------------------------------------------------
-    |
-    | Exact score = 3
-    | Correct result = 1
-    | Wrong result = 0
-    |
-    |--------------------------------------------------------------------------
-    */
-
     $points = null;
-
 
     $match_finished =
         $row['home_score'] !== null
         &&
         $row['away_score'] !== null;
-
 
     if ($match_finished) {
 
@@ -508,13 +373,6 @@ while (
 
         $actual_away =
             (int) $row['away_score'];
-
-
-        /*
-        |--------------------------------------------------------------------------
-        | EXACT SCORE
-        |--------------------------------------------------------------------------
-        */
 
         if (
             $predicted_home === $actual_home
@@ -526,24 +384,11 @@ while (
 
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | RESULT CALCULATION
-        |--------------------------------------------------------------------------
-        */
-
         else {
 
             $predicted_result = 0;
 
             $actual_result = 0;
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | USER PREDICTED HOME WIN
-            |--------------------------------------------------------------------------
-            */
 
             if (
                 $predicted_home >
@@ -554,13 +399,6 @@ while (
 
             }
 
-
-            /*
-            |--------------------------------------------------------------------------
-            | USER PREDICTED DRAW
-            |--------------------------------------------------------------------------
-            */
-
             elseif (
                 $predicted_home ===
                 $predicted_away
@@ -570,25 +408,11 @@ while (
 
             }
 
-
-            /*
-            |--------------------------------------------------------------------------
-            | USER PREDICTED AWAY WIN
-            |--------------------------------------------------------------------------
-            */
-
             else {
 
                 $predicted_result = -1;
 
             }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | ACTUAL HOME WIN
-            |--------------------------------------------------------------------------
-            */
 
             if (
                 $actual_home >
@@ -599,13 +423,6 @@ while (
 
             }
 
-
-            /*
-            |--------------------------------------------------------------------------
-            | ACTUAL DRAW
-            |--------------------------------------------------------------------------
-            */
-
             elseif (
                 $actual_home ===
                 $actual_away
@@ -615,25 +432,11 @@ while (
 
             }
 
-
-            /*
-            |--------------------------------------------------------------------------
-            | ACTUAL AWAY WIN
-            |--------------------------------------------------------------------------
-            */
-
             else {
 
                 $actual_result = -1;
 
             }
-
-
-            /*
-            |--------------------------------------------------------------------------
-            | CORRECT RESULT
-            |--------------------------------------------------------------------------
-            */
 
             if (
                 $predicted_result ===
@@ -654,30 +457,15 @@ while (
 
     }
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | GET LOGOS USING THE SAME SYSTEM AS OTHER_MATCHES.PHP
-    |--------------------------------------------------------------------------
-    */
-
     $home_logo =
         teamLogo(
             $row['home_team']
         );
 
-
     $away_logo =
         teamLogo(
             $row['away_team']
         );
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | DATABASE LOGO FALLBACK
-    |--------------------------------------------------------------------------
-    */
 
     if (
         !$home_logo
@@ -692,7 +480,6 @@ while (
 
     }
 
-
     if (
         !$away_logo
         &&
@@ -706,46 +493,35 @@ while (
 
     }
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | STORE DATA
-    |--------------------------------------------------------------------------
-    */
-
     $row['calculated_points'] =
         $points;
-
     $row['home_logo'] =
         $home_logo;
-
     $row['away_logo'] =
         $away_logo;
-
 
     $predictions[] =
         $row;
 
 }
 
-
 $prediction_stmt->close();
 
-
-/*
-|--------------------------------------------------------------------------
-| STATISTICS
-|--------------------------------------------------------------------------
-*/
+$reactionsBatch = reactionsGetBatchSummary(
+    $conn,
+    array_map(static function ($prediction) {
+        return (int)($prediction['match_id'] ?? $prediction['real_match_id'] ?? 0);
+    }, $predictions),
+    $current_user_id,
+    true
+);
 
 $total_predictions =
     count($predictions);
 
-
 $total_points = 0;
 
 $finished_matches = 0;
-
 
 foreach (
     $predictions
@@ -766,7 +542,6 @@ foreach (
     }
 
 }
-
 
 ?>
 <!DOCTYPE html>
@@ -798,7 +573,7 @@ foreach (
         :root {
 
             --accent:
-                #ff0080;
+                #00e07a;
 
         }
 
@@ -820,7 +595,7 @@ foreach (
                 fixed;
 
             background-color:
-                #1c003a;
+                #05010f;
 
             font-family:
                 Arial,
@@ -845,11 +620,11 @@ foreach (
             height: 100%;
 
             background:
-                rgba(
-                    10,
-                    0,
-                    21,
-                    0.75
+                linear-gradient(
+                    135deg,
+                    rgba(13, 6, 32, 0.96),
+                    rgba(0, 60, 45, 0.92),
+                    rgba(0, 90, 50, 0.90)
                 );
 
             z-index: -1;
@@ -898,9 +673,9 @@ foreach (
             border:
                 3px solid
                 rgba(
-                    233,
                     0,
-                    82,
+                    224,
+                    122,
                     .35
                 );
 
@@ -914,9 +689,9 @@ foreach (
                 ),
                 inset 0 0 15px
                 rgba(
-                    233,
                     0,
-                    82,
+                    224,
+                    122,
                     .08
                 );
 
@@ -933,25 +708,25 @@ foreach (
 
             border-color:
                 rgba(
-                    233,
                     0,
-                    82,
+                    224,
+                    122,
                     .9
                 );
 
             box-shadow:
                 0 0 40px
                 rgba(
-                    233,
                     0,
-                    82,
+                    224,
+                    122,
                     .4
                 ),
                 inset 0 0 20px
                 rgba(
-                    233,
                     0,
-                    82,
+                    224,
+                    122,
                     .15
                 );
 
@@ -989,10 +764,10 @@ foreach (
             border:
                 3px solid
                 rgba(
-                    255,
-                    255,
-                    255,
-                    .1
+                    0,
+                    224,
+                    122,
+                    .25
                 );
 
             color:
@@ -1019,23 +794,23 @@ foreach (
                         255,
                         255,
                         255,
-                        .06
+                        .045
                     ),
                     rgba(
                         255,
                         255,
                         255,
-                        .025
+                        .01
                     )
                 );
 
             border:
                 1px solid
                 rgba(
-                    255,
-                    255,
-                    255,
-                    .10
+                    0,
+                    224,
+                    122,
+                    .12
                 );
 
             backdrop-filter:
@@ -1047,7 +822,7 @@ foreach (
                     0,
                     0,
                     0,
-                    .35
+                    .60
                 );
 
         }
@@ -1059,32 +834,32 @@ foreach (
                 linear-gradient(
                     90deg,
                     rgba(
-                        233,
                         0,
-                        82,
-                        .18
+                        224,
+                        122,
+                        .10
                     ),
                     rgba(
-                        55,
-                        0,
-                        60,
-                        .30
+                        13,
+                        6,
+                        32,
+                        .35
                     ),
                     rgba(
-                        233,
                         0,
-                        82,
-                        .18
+                        224,
+                        122,
+                        .10
                     )
                 );
 
             border:
                 1px solid
                 rgba(
-                    233,
                     0,
-                    82,
-                    .25
+                    224,
+                    122,
+                    .20
                 );
 
         }
@@ -1114,11 +889,6 @@ foreach (
 
 <body class="text-white">
 
-
-<!-- ========================================================= -->
-<!-- NAVBAR -->
-<!-- ========================================================= -->
-
 <nav
     class="
         fixed
@@ -1126,10 +896,10 @@ foreach (
         left-0
         right-0
         z-50
-        bg-black/60
+        bg-black/80
         backdrop-blur-xl
         border-b
-        border-white/10
+        border-[#00e07a]/20
         px-5
         py-4
     "
@@ -1196,8 +966,8 @@ foreach (
                     $selected_gw ?>
             "
             class="
-                bg-white/10
-                hover:bg-white/20
+                bg-white/5
+                hover:bg-white/10
                 border
                 border-white/10
                 px-4
@@ -1214,11 +984,6 @@ foreach (
 
 </nav>
 
-
-<!-- ========================================================= -->
-<!-- MAIN -->
-<!-- ========================================================= -->
-
 <main
     class="
         max-w-6xl
@@ -1229,11 +994,6 @@ foreach (
         pb-12
     "
 >
-
-
-    <!-- ===================================================== -->
-    <!-- HEADER -->
-    <!-- ===================================================== -->
 
     <div
         class="
@@ -1248,9 +1008,9 @@ foreach (
                 h-20
                 mx-auto
                 rounded-full
-                bg-purple-700
+                bg-[#0d0620]
                 border
-                border-white/10
+                border-[#00e07a]/25
                 flex
                 items-center
                 justify-center
@@ -1291,7 +1051,7 @@ foreach (
 
         <p
             class="
-                text-gray-300
+                text-gray-400
                 mt-2
                 text-lg
             "
@@ -1359,11 +1119,6 @@ foreach (
         <?php endif; ?>
 
     </div>
-
-
-    <!-- ===================================================== -->
-    <!-- STATISTICS -->
-    <!-- ===================================================== -->
 
     <div
         class="
@@ -1501,11 +1256,6 @@ foreach (
 
     </div>
 
-
-    <!-- ===================================================== -->
-    <!-- PREDICTIONS -->
-    <!-- ===================================================== -->
-
     <?php if (empty($predictions)): ?>
 
 
@@ -1572,11 +1322,6 @@ foreach (
             as $prediction
         ): ?>
 
-
-            <!-- ============================================= -->
-            <!-- COMPETITION -->
-            <!-- ============================================= -->
-
             <?php if (
                 $prediction['competition']
                 !==
@@ -1623,11 +1368,6 @@ foreach (
 
             <?php endif; ?>
 
-
-            <!-- ============================================= -->
-            <!-- MATCH -->
-            <!-- ============================================= -->
-
             <div
                 class="
                     match-card
@@ -1637,12 +1377,9 @@ foreach (
                 "
             >
 
-
-                <!-- MATCH INFO -->
-
                 <div
                     class="
-                        bg-black/30
+                        bg-black/40
                         border-b
                         border-white/10
                         text-center
@@ -1653,7 +1390,7 @@ foreach (
 
                     <div
                         class="
-                            text-gray-400
+                            text-gray-500
                             text-xs
                             sm:text-sm
                         "
@@ -1677,9 +1414,6 @@ foreach (
 
                 <div class="p-5 sm:p-7">
 
-
-                    <!-- TEAMS -->
-
                     <div
                         class="
                             flex
@@ -1691,9 +1425,6 @@ foreach (
                             sm:gap-10
                         "
                     >
-
-
-                        <!-- HOME -->
 
                         <div
                             class="
@@ -1712,7 +1443,7 @@ foreach (
                                     font-black
                                     uppercase
                                     tracking-wider
-                                    text-blue-400
+                                    text-[#00e07a]
                                     mb-2
                                 "
                             >
@@ -1789,8 +1520,6 @@ foreach (
 
                         </div>
 
-
-                        <!-- PREDICTION -->
 
                         <div
                             class="
@@ -1877,8 +1606,6 @@ foreach (
                         </div>
 
 
-                        <!-- AWAY -->
-
                         <div
                             class="
                                 flex
@@ -1896,7 +1623,7 @@ foreach (
                                     font-black
                                     uppercase
                                     tracking-wider
-                                    text-red-400
+                                    text-[#008a66]
                                     mb-2
                                 "
                             >
@@ -1974,11 +1701,6 @@ foreach (
                         </div>
 
                     </div>
-
-
-                    <!-- ===================================== -->
-                    <!-- RESULT -->
-                    <!-- ===================================== -->
 
                     <?php if (
                         $prediction[
@@ -2060,10 +1782,10 @@ foreach (
                                             px-4
                                             py-2
                                             rounded-full
-                                            bg-green-500/15
+                                            bg-[#00e07a]/15
                                             border
-                                            border-green-500/30
-                                            text-green-400
+                                            border-[#00e07a]/30
+                                            text-[#00e07a]
                                             font-black
                                             text-sm
                                         "
@@ -2087,10 +1809,10 @@ foreach (
                                             px-4
                                             py-2
                                             rounded-full
-                                            bg-yellow-500/15
+                                            bg-[#008a66]/15
                                             border
-                                            border-yellow-500/30
-                                            text-yellow-400
+                                            border-[#008a66]/30
+                                            text-[#4fdcb8]
                                             font-black
                                             text-sm
                                         "
@@ -2173,6 +1895,15 @@ foreach (
 
                 </div>
 
+                <?php
+                reactionsRenderBlock(
+                    $conn,
+                    (int)($prediction['match_id'] ?? $prediction['real_match_id'] ?? 0),
+                    $current_user_id,
+                    $reactionsBatch
+                );
+                ?>
+
             </div>
 
 
@@ -2180,11 +1911,6 @@ foreach (
 
 
     <?php endif; ?>
-
-
-    <!-- ===================================================== -->
-    <!-- BACK -->
-    <!-- ===================================================== -->
 
     <div
         class="
@@ -2203,8 +1929,8 @@ foreach (
                 items-center
                 gap-2
                 bg-accent
-                hover:bg-pink-600
-                text-black
+                hover:bg-[#00b862]
+                text-[#0d0620]
                 px-6
                 py-3
                 rounded-xl
@@ -2223,6 +1949,7 @@ foreach (
 
 </main>
 
+<script src="match_reactions.js"></script>
 
 </body>
 

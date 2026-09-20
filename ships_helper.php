@@ -297,7 +297,7 @@ if (!function_exists('shipsGetSeasonHalf')) {
      * points_helper.php calls this to decide whether to double
      * every match instead of just the classic Double Pick match.
      */
-    function shipsDoubleAllActive(mysqli $conn, int $userId, int $gameweek): bool
+        function shipsDoubleAllActive(mysqli $conn, int $userId, int $gameweek): bool
     {
         $stmt = $conn->prepare("
             SELECT id FROM ship_usage
@@ -314,6 +314,36 @@ if (!function_exists('shipsGetSeasonHalf')) {
         return $active;
     }
 
+    /**
+     * Every ship used by ANY player in one gameweek, keyed by user_id.
+     * Used to badge ship users on the leaderboard.
+     */
+    function shipsGetGameweekUsageMap(mysqli $conn, int $gameweek): array
+    {
+        $map = [];
+
+        $stmt = $conn->prepare("
+            SELECT user_id, ship_code, status, result, points_awarded
+            FROM ship_usage
+            WHERE gameweek = ?
+        ");
+        if (!$stmt) return $map;
+
+        $stmt->bind_param('i', $gameweek);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        while ($row = $result->fetch_assoc()) {
+            $map[(int)$row['user_id']] = $row;
+        }
+
+        $stmt->close();
+
+        return $map;
+    }
+
+    /**
+     * Called after a single match's prediction points get resynced.
     /**
      * Called after a single match's prediction points get resynced.
      * If that match belongs to an active Perfect Five pick and all 5

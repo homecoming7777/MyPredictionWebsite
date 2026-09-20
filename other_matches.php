@@ -3,6 +3,7 @@
 session_start();
 include 'connect.php';
 require_once 'gameweek_deadline.php';
+require_once 'match_difficulty_helper.php';
 
 date_default_timezone_set('Africa/Casablanca');
 
@@ -12,6 +13,11 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $user_id = (int) $_SESSION['user_id'];
+
+function e($value)
+{
+    return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+}
 
 function teamLogo($teamName)
 {
@@ -154,17 +160,17 @@ $stmt->bind_param("ii", $user_id, $selected_gw);
 $stmt->execute();
 $result = $stmt->get_result();
 
-/*
-|--------------------------------------------------------------------------
-| OTHER USERS' PREDICTIONS (read-only list)
-|--------------------------------------------------------------------------
-|
-| Only loaded once the deadline has passed, so nobody's picks leak before
-| the matches are locked. Lists everyone who submitted at least one
-| prediction for this gameweek's "Other Leagues" matches, with a link to
-| a read-only breakdown of that user's picks.
-|
-*/
+$matches = [];
+
+while ($row = $result->fetch_assoc()) {
+    $matches[] = $row;
+}
+
+$matchIds = array_map(static function ($match) {
+    return (int)($match['id'] ?? 0);
+}, $matches);
+
+$difficultyBatch = difficultyGetBatchForMatches($conn, $matchIds);
 
 $other_users_predictions = [];
 
@@ -220,15 +226,17 @@ if ($deadlinePassed) {
 <style>
 
 :root {
-    --pl-dark: #06060a;
-    --pl-purple: #1a0030;
-    --pl-accent: #00ff9d;
-    --card: #120014;
+    --pl-dark: #0d0620;
+    --pl-purple: #1a0836;
+    --pl-teal: #005c44;
+    --pl-accent: #00e07a;
+    --card: #0d0620;
     --muted: #bfb7c6;
 }
 
 body {
     background: url('PL_img/22.jpg') center/cover no-repeat fixed;
+    background-color: #05010f;
 }
 
 body::before {
@@ -238,7 +246,7 @@ body::before {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(10, 0, 21, 0.65);
+    background: linear-gradient(135deg, rgba(13,6,32,0.96), rgba(0,60,45,0.92), rgba(0,90,50,0.90));
     z-index: -1;
     pointer-events: none;
 }
@@ -250,15 +258,15 @@ body::before {
     background: transparent;
     border-radius: 50%;
     padding: 6px;
-    border: 3px solid rgba(0,255,157,.35);
-    box-shadow: 0 8px 30px rgba(0,0,0,.5), inset 0 0 15px rgba(0,255,157,.08);
+    border: 3px solid rgba(0,224,122,.35);
+    box-shadow: 0 8px 30px rgba(0,0,0,.5), inset 0 0 15px rgba(0,224,122,.08);
     transition: all .3s ease;
 }
 
 .team-logo:hover {
     transform: scale(1.12);
-    border-color: rgba(0,255,157,.9);
-    box-shadow: 0 0 40px rgba(0,255,157,.4), inset 0 0 20px rgba(0,255,157,.15);
+    border-color: rgba(0,224,122,.9);
+    box-shadow: 0 0 40px rgba(0,224,122,.4), inset 0 0 20px rgba(0,224,122,.15);
 }
 
 .team-logo-fallback {
@@ -269,10 +277,10 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 3px solid rgba(0,255,157,.4);
+    border: 3px solid rgba(0,224,122,.4);
     font-size: 0.7rem;
     font-weight: 900;
-    color: #f7f2fa;
+    color: #e4f2ec;
     text-align: center;
     padding: 6px;
     box-shadow: 0 8px 30px rgba(0,0,0,.5);
@@ -281,8 +289,8 @@ body::before {
 
 .team-logo-fallback:hover {
     transform: scale(1.08);
-    border-color: rgba(0,255,157,.85);
-    box-shadow: 0 0 35px rgba(0,255,157,.35);
+    border-color: rgba(0,224,122,.85);
+    box-shadow: 0 0 35px rgba(0,224,122,.35);
 }
 
 @media(max-width:640px) {
@@ -295,16 +303,16 @@ body::before {
 }
 
 .match-card {
-    background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.018));
-    border: 1px solid rgba(255,255,255,.09);
-    box-shadow: 0 18px 50px rgba(0,0,0,.40);
+    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.01));
+    border: 1px solid rgba(0,224,122,.12);
+    box-shadow: 0 18px 50px rgba(0,0,0,.60);
     backdrop-filter: blur(14px);
     transition: all .25s ease;
 }
 
 .match-card:hover {
     transform: translateY(-3px);
-    border-color: rgba(0,255,157,.40);
+    border-color: rgba(0,224,122,.35);
 }
 
 .nav-link {
@@ -312,7 +320,7 @@ body::before {
 }
 
 .nav-link:hover {
-    color: #00ff9d;
+    color: #00e07a;
 }
 
 .text-accent {
@@ -336,20 +344,20 @@ body::before {
 }
 
 .score-input {
-    background: rgba(0,0,0,.35);
-    border: 2px solid rgba(0,255,157,.65);
-    color: #ffd86b;
+    background: rgba(0,0,0,.45);
+    border: 2px solid rgba(0,224,122,.55);
+    color: #00e07a;
     transition: all .2s ease;
 }
 
 .score-input:focus {
-    border-color: #06effd;
-    box-shadow: 0 0 18px rgba(6,239,253,.15);
+    border-color: #00e07a;
+    box-shadow: 0 0 18px rgba(0,224,122,.20);
 }
 
 .league-title {
-    background: linear-gradient(90deg, rgba(0,255,157,.15), rgba(26,0,48,.25), rgba(0,255,157,.15));
-    border: 1px solid rgba(0,255,157,.20);
+    background: linear-gradient(90deg, rgba(0,224,122,.10), rgba(13,6,32,.35), rgba(0,224,122,.10));
+    border: 1px solid rgba(0,224,122,.20);
 }
 
 .team-name {
@@ -369,7 +377,7 @@ body::before {
 
 <body class="min-h-screen text-white">
 
-<nav class="fixed top-0 left-0 right-0 z-50 bg-black/65 backdrop-blur-2xl border-b border-white/10 px-5 md:px-8 py-4 flex justify-between items-center">
+<nav class="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-2xl border-b border-[#00e07a]/20 px-5 md:px-8 py-4 flex justify-between items-center">
 
     <a href="dashboard.php" class="flex items-center gap-3">
         <div class="w-11 h-11 rounded-full p-1 flex items-center justify-center">
@@ -379,10 +387,11 @@ body::before {
     </a>
 
     <div class="hidden md:flex items-center gap-7 text-sm font-semibold">
-        <a href="dashboard.php" class="nav-link">Dashboard</a>
-        <a href="predictions.php" class="nav-link">Predictions</a>
-        <a href="leaderboard.php" class="nav-link">Leaderboard</a>
-        <a href="my_predictions.php" class="nav-link">My Predictions</a>
+        <a href="dashboard.php" class="nav-link text-gray-400">Dashboard</a>
+        <a href="predictions.php" class="nav-link text-gray-400">Predictions</a>
+        <a href="leaderboard.php" class="nav-link text-gray-400">Leaderboard</a>
+        <a href="my_predictions.php" class="nav-link text-gray-400">My Predictions</a>
+        <a href="team_stats.php" class="nav-link text-gray-400">Team Stats</a>    
     </div>
 
     <button onclick="toggleMenu()" class="md:hidden text-white focus:outline-none">
@@ -393,12 +402,12 @@ body::before {
 
 </nav>
 
-<!-- Mobile menu: each link now takes full width and has a bottom border for clear vertical separation -->
-<div id="mobileMenu" class="hidden bg-[#1a0030]/95 backdrop-blur-xl flex-col text-white py-2 px-0 fixed top-16 left-0 w-full z-40 md:hidden border-b border-white/10">
+<div id="mobileMenu" class="hidden bg-black/95 backdrop-blur-xl flex-col text-white py-2 px-0 fixed top-16 left-0 w-full z-40 md:hidden border-b border-[#00e07a]/20">
     <a href="dashboard.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Dashboard</a>
     <a href="predictions.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Predictions</a>
     <a href="leaderboard.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Leaderboard</a>
     <a href="my_predictions.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">My Predictions</a>
+    <a href="team_stats.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Team Stats</a>
 </div>
 
 <script>
@@ -407,16 +416,16 @@ function toggleMenu() {
 }
 </script>
 
-<div class="w-full mt-24 max-w-6xl mx-auto bg-card backdrop-blur-md rounded-2xl shadow-2xl p-5 sm:p-6 mb-10 border border-white/10">
+<div class="w-full mt-24 max-w-6xl mx-auto bg-card backdrop-blur-md rounded-2xl shadow-2xl p-5 sm:p-6 mb-10 border border-[#00e07a]/15">
 
 <div class="text-center mb-8">
     <h1 class="text-3xl sm:text-4xl font-black text-accent">Other Leagues Predictions</h1>
-    <p class="text-gray-400 mt-2">Gameweek <?= $selected_gw ?></p>
+    <p class="text-gray-500 mt-2">Gameweek <?= $selected_gw ?></p>
 </div>
 
 <form method="GET" class="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
     <label for="gameweek" class="text-muted text-sm font-semibold">Select Gameweek:</label>
-    <select name="gameweek" id="gameweek" class="bg-[#120014] border border-accent text-white px-4 py-2.5 rounded-xl outline-none font-bold cursor-pointer" onchange="this.form.submit()">
+    <select name="gameweek" id="gameweek" class="bg-[#0d0620] border border-accent text-white px-4 py-2.5 rounded-xl outline-none font-bold cursor-pointer" onchange="this.form.submit()">
         <?php while ($gw = $gw_result->fetch_assoc()):
             $gw_num = (int)$gw['gameweek'];
             $selected = ($selected_gw == $gw_num) ? 'selected' : '';
@@ -445,19 +454,17 @@ function toggleMenu() {
         <?php else: ?>
             <p class="text-gray-400 mb-6">You can no longer submit predictions for these matches.</p>
         <?php endif; ?>
-        <a href="my_predictions.php" class="bg-accent hover:bg-green-600 text-black px-6 py-3 rounded-lg font-black inline-block mb-3 transition">Go to My Predictions</a>
+        <a href="my_predictions.php" class="bg-accent hover:bg-[#00b862] text-[#0d0620] px-6 py-3 rounded-lg font-black inline-block mb-3 transition">Go to My Predictions</a>
         <br>
         <a href="predictions.php" class="text-accent underline text-sm sm:text-base">← Back to Premier League</a>
     </div>
 </div>
 
-<!-- OTHER USERS' PREDICTIONS -->
-
 <div class="mt-10">
 
     <div class="text-center mb-6">
         <h2 class="text-2xl font-black text-white">Other Users' Predictions</h2>
-        <p class="text-gray-400 mt-1 text-sm">Gameweek <?= (int)$selected_gw ?> · Read-only</p>
+        <p class="text-gray-500 mt-1 text-sm">Gameweek <?= (int)$selected_gw ?> · Read-only</p>
     </div>
 
     <?php if (count($other_users_predictions) === 0): ?>
@@ -496,7 +503,7 @@ function toggleMenu() {
                                 <?php if (!$is_self): ?>
                                     <a
                                         href="user_predictions.php?user_id=<?= (int)$u['user_id'] ?>&gameweek=<?= (int)$selected_gw ?>"
-                                        class="text-accent underline text-sm font-semibold hover:text-pink-300"
+                                        class="text-accent underline text-sm font-semibold hover:text-[#00b862]"
                                     >
                                         View predictions →
                                     </a>
@@ -525,7 +532,7 @@ function toggleMenu() {
 
 <div id="matches-container">
 
-<?php if ($result->num_rows === 0): ?>
+<?php if (count($matches) === 0): ?>
 
     <div class="text-center text-muted py-12 bg-white/5 rounded-2xl border border-white/10">
         <div class="text-5xl mb-4">⚽</div>
@@ -540,7 +547,7 @@ function toggleMenu() {
         <input type="hidden" name="prediction_type" value="multiple">
         <input type="hidden" name="gameweek" value="<?= (int)$selected_gw ?>">
 
-    <?php while ($match = $result->fetch_assoc()): ?>
+    <?php foreach ($matches as $match): ?>
 
         <?php if ($match['competition'] !== $current_league): ?>
             <?php $current_league = $match['competition']; ?>
@@ -608,12 +615,22 @@ function toggleMenu() {
 
             </div>
 
-        </div>
+            <?php
+            $widget_match_id = (int)$match['id'];
+            $widget_difficulty = $difficultyBatch[$widget_match_id] ?? difficultyGetForMatch($conn, $widget_match_id);
+            require __DIR__ . '/difficulty_widget.php';
+            ?>
 
-    <?php endwhile; ?>
+            <div class="flex items-center justify-center gap-3 mt-4 flex-wrap">
+                <a href="team_stats.php?team=<?= urlencode($match['home_team']) ?>&compare=<?= urlencode($match['away_team']) ?>" class="text-[11px] font-black uppercase tracking-wider text-accent border border-accent rounded-full px-4 py-2 transition hover:opacity-80">View Team Stats</a>
+                <a href="team_stats.php?team=<?= urlencode($match['home_team']) ?>&compare=<?= urlencode($match['away_team']) ?>" class="text-[11px] font-black uppercase tracking-wider text-white/80 border border-white/20 rounded-full px-4 py-2 transition hover:opacity-80">Compare Teams</a>
+            </div>
+
+        </div>
+    <?php endforeach; ?>
 
         <div class="flex justify-center mt-8 pt-2 pb-4">
-            <button type="submit" class="bg-accent border-2 border-green-800 hover:bg-green-600 hover:scale-105 transition px-10 py-3 rounded-xl text-base font-black shadow-lg shadow-green-500/20">
+            <button type="submit" class="bg-accent border-2 border-[#005c44] hover:bg-[#00b862] hover:scale-105 transition px-10 py-3 rounded-xl text-base font-black text-[#0d0620] shadow-lg shadow-[#00e07a]/20">
                 ✓ Submit All Predictions
             </button>
         </div>
@@ -623,7 +640,7 @@ function toggleMenu() {
 <?php endif; ?>
 
 <div class="text-center mt-8 pb-4">
-    <a href="predictions.php" class="text-accent underline text-sm sm:text-base font-semibold hover:text-pink-300">← Back to Premier League</a>
+    <a href="predictions.php" class="text-accent underline text-sm sm:text-base font-semibold hover:text-[#00b862]">← Back to Premier League</a>
 </div>
 
 </div>

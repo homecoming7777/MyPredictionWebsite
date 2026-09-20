@@ -10,8 +10,11 @@
 
         $user_id = (int) $_SESSION['user_id'];
 
+
     require_once 'points_helper.php';
     require_once 'ships_helper.php';
+    require_once 'badges_helper.php';
+    require_once 'reactions_helper.php';
 
     function e($value)
     {
@@ -22,10 +25,6 @@
         );
     }
 
-    /**
-     * Lowercase + strip accents/punctuation so "Atlético Madrid",
-     * "Atletico Madrid" and "ATLETICO MADRID" all compare equal.
-     */
     function normalizeTeamName($name)
     {
         $name = mb_strtolower(trim((string) $name), 'UTF-8');
@@ -47,11 +46,6 @@
         return $name;
     }
 
-    /**
-     * A looser version of normalizeTeamName() that also drops common
-     * club words (fc, cf, united, etc.) so e.g. "Barcelona" and
-     * "FC Barcelona" match without needing a manual alias.
-     */
     function normalizeTeamKey($name)
     {
         $name = normalizeTeamName($name);
@@ -73,14 +67,6 @@
         return $key !== '' ? $key : $name;
     }
 
-    /**
-     * Confirms a logo path stored in the DB actually exists on disk.
-     * If the exact case doesn't exist (e.g. DB says "Barcelona.png" but
-     * the real file is "barcelona.PNG"), it looks for a case-insensitive
-     * match in the same folder and corrects the path automatically.
-     * Returns null if nothing usable is found, so callers can keep
-     * trying other candidates instead of rendering a broken <img>.
-     */
     function resolveLocalLogoPath($logoPath)
     {
         $logoPath = trim((string) $logoPath);
@@ -89,7 +75,6 @@
             return null;
         }
 
-        // Remote URLs are trusted as-is.
         if (preg_match('#^(https?:)?//#i', $logoPath)) {
             return $logoPath;
         }
@@ -131,9 +116,6 @@
             return null;
         }
 
-        // Manual aliases for clubs whose common name differs a lot from
-        // however they're stored in the `teams` table. Add more pairs
-        // here whenever a specific club's logo still doesn't show up.
         $aliases = [
             'barcelona' => ['fc barcelona', 'barca'],
             'real madrid' => ['real madrid cf'],
@@ -153,7 +135,6 @@
             'borussia dortmund' => ['dortmund', 'bvb'],
         ];
 
-        // Load every team once per request instead of querying per lookup.
         if ($teamsCache === null) {
             $teamsCache = [];
             $res = $conn->query("SELECT name, logo FROM teams WHERE logo IS NOT NULL AND logo != ''");
@@ -169,7 +150,6 @@
             }
         }
 
-        // Collect every name variant worth trying, most confident first.
         $candidates = [$normalizedInput];
 
         foreach ($aliases as $canonical => $variants) {
@@ -183,7 +163,6 @@
 
         $candidates = array_unique($candidates);
 
-        // 1) Exact match (accent/case/punctuation-insensitive).
         foreach ($candidates as $candidate) {
             foreach ($teamsCache as $team) {
                 if ($team['normalized'] === $candidate) {
@@ -196,7 +175,6 @@
             }
         }
 
-        // 2) Loose match ignoring words like "FC", "CF", "United".
         $inputKey = normalizeTeamKey($normalizedInput);
 
         foreach ($teamsCache as $team) {
@@ -209,7 +187,6 @@
             }
         }
 
-        // 3) Local image files in PL_Teams/ named after the team.
         foreach (array_merge($candidates, [$inputKey]) as $candidate) {
             $safeName = trim(preg_replace('/[^a-z0-9]+/', '_', $candidate), '_');
 
@@ -226,8 +203,6 @@
             }
         }
 
-        // 4) Last resort: partial match either direction (e.g. "Real Madrid"
-        // inside "Real Madrid CF", or vice versa).
         foreach ($teamsCache as $team) {
             if ($team['normalized'] !== '' && (
                 strpos($team['normalized'], $normalizedInput) !== false ||
@@ -253,7 +228,7 @@
         $points = (int)$points;
 
         if ($points >= 3) {
-            $class = 'bg-green-400 text-black';
+            $class = 'bg-[#00e07a] text-[#0d0620]';
         } elseif ($points > 0) {
             $class = 'bg-yellow-400 text-black';
         } else {
@@ -362,10 +337,6 @@
         $view_username = null;
     }
 
-    /* ------------------------------------------------------------------
-       SHIPS: check status + handle "activate ship" POST action
-       ------------------------------------------------------------------ */
-
     $shipsOwnerDoubleAllActive = shipsDoubleAllActive($conn, $user_id, $gameweek);
 
     if (
@@ -472,12 +443,19 @@
                 $double_stmt->close();
     }
 
-    $doubleAllActiveThisGw = shipsDoubleAllActive($conn, $view_user_id, $gameweek);
+        $doubleAllActiveThisGw = shipsDoubleAllActive($conn, $view_user_id, $gameweek);
     $perfectFiveThisGw = shipsGetPerfectFiveForGameweek($conn, $view_user_id, $gameweek);
     $shipsCatalog = shipsCatalog();
     $shipsUsage = shipsGetUserUsage($conn, $view_user_id);
     $shipsMessage = $_GET['ships_message'] ?? null;
     $shipsError = $_GET['ships_error'] ?? null;
+
+    $shipUsageMapThisGw = shipsGetGameweekUsageMap($conn, $gameweek);
+
+    $previousGameweek = getPreviousGameweekFromList($gameweeks, $gameweek);
+    $previousGameweekWinner = $previousGameweek !== null
+        ? getGameweekWinner($conn, $previousGameweek)
+        : null;
 
     $matches = [];
 
@@ -518,13 +496,21 @@
 
     $stmt->close();
 
+    $reactionsBatch = [];
+
+    if ($is_locked) {
+        $reactionsBatch = reactionsGetBatchSummary(
+            $conn,
+            array_map(static function ($match) {
+                return (int)($match['id'] ?? 0);
+            }, $matches),
+            $user_id,
+            true
+        );
+    }
+
     $total_points = 0;
 
-    /*
-     * score_exact.points already stores the FINAL points (base_points,
-     * doubled once by points_helper.php when a Double Pick is active).
-     * Do NOT multiply it again here - just sum it.
-     */
     $total_sql = "
         SELECT COALESCE(SUM(COALESCE(p.points, 0)), 0) AS total_points
         FROM score_exact p
@@ -734,7 +720,7 @@
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
-            background-color: #1c003a;
+            background-color: #05010f;
             font-family: Arial, Helvetica, sans-serif;
         }
         
@@ -745,7 +731,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(10, 0, 21, 0.75);
+            background: linear-gradient(135deg, rgba(13,6,32,0.96), rgba(0,60,45,0.92), rgba(0,90,50,0.90));
             z-index: -1;
             pointer-events: none;
         }
@@ -754,7 +740,7 @@
     </head>
 
     <body class="min-h-screen pb-16 text-white">
-    <nav class="fixed top-0 left-0 right-0 z-50 bg-[#1c003a]/80 backdrop-blur-xl border-b border-[#ff0080]/30 px-5 md:px-8 py-4 flex justify-between items-center">
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-xl border-b border-[#00e07a]/20 px-5 md:px-8 py-4 flex justify-between items-center">
 
         <a href="dashboard.php" class="flex items-center gap-3">
             <div class="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden">
@@ -764,22 +750,24 @@
         </a>
 
         <div class="hidden md:flex items-center gap-7 text-sm font-bold">
-            <a href="dashboard.php" class="hover:text-[#ff9900] transition-colors">Dashboard</a>
-            <a href="predictions.php" class="hover:text-[#ff9900] transition-colors">Predictions</a>
-            <a href="leaderboard.php" class="hover:text-[#ff9900] transition-colors">Leaderboard</a>
-            <a href="my_predictions.php" class="text-[#ff0080]">My Predictions</a>
+            <a href="dashboard.php" class="text-gray-400 hover:text-[#00e07a] transition-colors">Dashboard</a>
+            <a href="predictions.php" class="text-gray-400 hover:text-[#00e07a] transition-colors">Predictions</a>
+            <a href="leaderboard.php" class="text-gray-400 hover:text-[#00e07a] transition-colors">Leaderboard</a>
+                        <a href="my_predictions.php" class="text-[#00e07a]">My Predictions</a>
+            <a href="team_stats.php" class="text-gray-400 hover:text-[#00e07a] transition-colors">Team Stats</a>
         </div>
 
         <button onclick="toggleMenu()" class="md:hidden text-lg px-2 font-bold text-white">Menu</button>
 
     </nav>
 
-    <div id="mobileMenu" class="hidden fixed top-[73px] left-0 right-0 z-40 bg-[#1c003a]/95 backdrop-blur-xl border-b border-[#ff0080]/30 p-6">
+    <div id="mobileMenu" class="hidden fixed top-[73px] left-0 right-0 z-40 bg-black/95 backdrop-blur-xl border-b border-[#00e07a]/20 p-6">
         <div class="flex flex-col gap-5 font-bold">
-            <a href="dashboard.php" class="hover:text-[#ff9900] transition-colors">Dashboard</a>
-            <a href="predictions.php" class="hover:text-[#ff9900] transition-colors">Predictions</a>
-            <a href="leaderboard.php" class="hover:text-[#ff9900] transition-colors">Leaderboard</a>
-            <a href="my_predictions.php" class="text-[#ff0080]">My Predictions</a>
+            <a href="dashboard.php" class="text-gray-400 hover:text-[#00e07a] transition-colors">Dashboard</a>
+            <a href="predictions.php" class="text-gray-400 hover:text-[#00e07a] transition-colors">Predictions</a>
+            <a href="leaderboard.php" class="text-gray-400 hover:text-[#00e07a] transition-colors">Leaderboard</a>
+                     <a href="my_predictions.php" class="text-[#00e07a]">My Predictions</a>
+            <a href="team_stats.php" class="text-gray-400 hover:text-[#00e07a] transition-colors">Team Stats</a>
         </div>
     </div>
 
@@ -802,7 +790,7 @@
             </div>
 
             <div>
-                <div class="text-[#ff0080] text-sm font-black uppercase tracking-widest">
+                <div class="text-[#00e07a] text-sm font-black uppercase tracking-widest">
                     <?php if ($is_viewing_other_user): ?>
                         Viewing
                     <?php else: ?>
@@ -816,23 +804,23 @@
                         My Predictions
                     <?php endif; ?>
                 </h1>
-                <p class="text-gray-300 mt-1">
-                    Premier League <span class="text-gray-500">•</span> Gameweek <?= $gameweek ?>
+                <p class="text-gray-400 mt-1">
+                    Premier League <span class="text-gray-600">•</span> Gameweek <?= $gameweek ?>
                     <?php if ($is_viewing_other_user): ?>
-                        <span class="text-gray-500">•</span> <span class="text-yellow-300 font-bold">READ ONLY</span>
+                        <span class="text-gray-600">•</span> <span class="text-yellow-300 font-bold">READ ONLY</span>
                     <?php endif; ?>
                 </p>
             </div>
         </div>
 
         <div class="flex flex-col sm:flex-row items-center gap-3">
-            <div class="bg-gradient-to-r from-[#e90052] to-[#ff9900] text-white px-5 py-3 rounded-xl font-black shadow-lg shadow-pink-500/20">
+            <div class="bg-gradient-to-r from-[#005c44] to-[#00e07a] text-[#0d0620] px-5 py-3 rounded-xl font-black shadow-lg shadow-[#00e07a]/20">
                 <?= $total_points ?> Points
             </div>
 
             <?php if (!empty($gameweeks)): ?>
                 <form method="GET">
-                    <select name="gameweek" onchange="this.form.submit()" class="bg-[#1c003a] border border-[#ff0080]/60 text-white rounded-xl px-4 py-3 font-bold outline-none cursor-pointer">
+                    <select name="gameweek" onchange="this.form.submit()" class="bg-[#0d0620] border border-[#00e07a]/60 text-white rounded-xl px-4 py-3 font-bold outline-none cursor-pointer">
                         <?php foreach ($gameweeks as $gw): ?>
                             <option value="<?= $gw ?>" <?= $gw == $gameweek ? 'selected' : '' ?>>Gameweek <?= $gw ?></option>
                         <?php endforeach; ?>
@@ -843,9 +831,22 @@
 
     </div>
 
-    <?php if ($is_viewing_other_user): ?>
+        <?php if ($is_viewing_other_user): ?>
         <div class="mb-7 flex justify-center">
-            <a href="my_predictions.php?gameweek=<?= $gameweek ?>" class="inline-flex items-center gap-2 bg-white/10 hover:bg-white/15 border border-white/10 px-5 py-3 rounded-xl font-black transition">Back to My Predictions</a>
+            <a href="my_predictions.php?gameweek=<?= $gameweek ?>" class="inline-flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 px-5 py-3 rounded-xl font-black transition">Back to My Predictions</a>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($previousGameweekWinner !== null): ?>
+        <div class="mb-7 rounded-2xl bg-gradient-to-r from-amber-300/20 via-orange-400/10 to-amber-300/20 border border-amber-300/30 p-5 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <span class="text-2xl">🏆</span>
+                <div>
+                    <div class="text-amber-300 font-black text-lg">BEST MANAGER — GAMEWEEK <?= (int)$previousGameweek ?></div>
+                    <p class="text-gray-400 mt-1 text-sm"><?= e($previousGameweekWinner['username']) ?> topped Gameweek <?= (int)$previousGameweek ?> with <?= (int)$previousGameweekWinner['total_points'] ?> points.</p>
+                </div>
+            </div>
+            <div class="inline-flex items-center justify-center bg-amber-400 text-black px-5 py-2.5 rounded-full font-black self-start md:self-auto">👑 <?= e($previousGameweekWinner['username']) ?></div>
         </div>
     <?php endif; ?>
 
@@ -860,7 +861,7 @@
             }
         }
         ?>
-        <div class="mb-7 rounded-2xl bg-gradient-to-r from-yellow-300/20 via-pink-500/10 to-yellow-300/20 border-b border-yellow-300/20 p-5 md:p-6">
+        <div class="mb-7 rounded-2xl bg-gradient-to-r from-yellow-300/20 via-yellow-500/10 to-yellow-300/20 border-b border-yellow-300/20 p-5 md:p-6">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <div class="text-yellow-300 font-black text-lg">
@@ -870,7 +871,7 @@
                             DOUBLE PICK SELECTED
                         <?php endif; ?>
                     </div>
-                    <p class="text-gray-300 mt-1"><?= e($double_match_name ?? 'Selected match') ?></p>
+                    <p class="text-gray-400 mt-1"><?= e($double_match_name ?? 'Selected match') ?></p>
                 </div>
                                 <div class="inline-flex items-center justify-center bg-yellow-400 text-black px-5 py-2.5 rounded-full font-black self-start md:self-auto">2× POINTS</div>
             </div>
@@ -878,13 +879,13 @@
     <?php endif; ?>
 
     <?php if ($doubleAllActiveThisGw): ?>
-        <div class="mb-7 rounded-2xl bg-gradient-to-r from-yellow-300/20 via-pink-500/10 to-yellow-300/20 border border-yellow-300/30 p-5 md:p-6">
+        <div class="mb-7 rounded-2xl bg-gradient-to-r from-yellow-300/20 via-yellow-500/10 to-yellow-300/20 border border-yellow-300/30 p-5 md:p-6">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <div class="text-yellow-300 font-black text-lg">
                         <?php if ($is_viewing_other_user): ?><?= e($view_username) ?>'S DOUBLE UP<?php else: ?>DOUBLE UP ACTIVE<?php endif; ?>
                     </div>
-                    <p class="text-gray-300 mt-1 text-sm">Every match this gameweek is worth double points.</p>
+                    <p class="text-gray-400 mt-1 text-sm">Every match this gameweek is worth double points.</p>
                 </div>
                 <div class="inline-flex items-center justify-center bg-yellow-400 text-black px-5 py-2.5 rounded-full font-black self-start md:self-auto">2× ALL MATCHES</div>
             </div>
@@ -900,15 +901,15 @@
                 }
             }
         ?>
-        <div class="mb-7 rounded-2xl bg-gradient-to-r from-purple-500/20 via-pink-500/10 to-purple-500/20 border border-purple-400/30 p-5 md:p-6">
+        <div class="mb-7 rounded-2xl bg-gradient-to-r from-purple-500/20 via-purple-500/10 to-purple-500/20 border border-purple-400/30 p-5 md:p-6">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <div class="text-purple-300 font-black text-lg">
                         <?php if ($is_viewing_other_user): ?><?= e($view_username) ?>'S PERFECT FIVE<?php else: ?>PERFECT FIVE ACTIVE<?php endif; ?>
                     </div>
-                    <p class="text-gray-300 mt-1 text-sm"><?= e(implode(' • ', $pfMatchNames)) ?></p>
+                    <p class="text-gray-400 mt-1 text-sm"><?= e(implode(' • ', $pfMatchNames)) ?></p>
                 </div>
-                <div class="inline-flex items-center justify-center px-5 py-2.5 rounded-full font-black self-start md:self-auto <?= $perfectFiveThisGw['status'] === 'active' ? 'bg-white/10 text-gray-300' : ($perfectFiveThisGw['result'] === 'doubled' ? 'bg-green-400 text-black' : 'bg-red-500 text-white') ?>">
+                <div class="inline-flex items-center justify-center px-5 py-2.5 rounded-full font-black self-start md:self-auto <?= $perfectFiveThisGw['status'] === 'active' ? 'bg-white/10 text-gray-300' : ($perfectFiveThisGw['result'] === 'doubled' ? 'bg-[#00e07a] text-[#0d0620]' : 'bg-red-500 text-white') ?>">
                     <?php if ($perfectFiveThisGw['status'] === 'active'): ?>
                         Pending result
                     <?php elseif ($perfectFiveThisGw['result'] === 'doubled'): ?>
@@ -923,14 +924,14 @@
 
     <?php if (!$is_viewing_other_user): ?>
         <div class="max-w-6xl mx-auto mb-10">
-            <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-5 md:p-7">
+            <div class="bg-white/5 backdrop-blur-xl border border-[#00e07a]/15 rounded-2xl p-5 md:p-7">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-xl sm:text-2xl font-black text-white">Ships</h2>
-                    <span class="text-xs text-gray-400 font-bold">2 uses each per season - 1 per half</span>
+                    <span class="text-xs text-gray-500 font-bold">2 uses each per season - 1 per half</span>
                 </div>
 
                 <?php if ($shipsMessage): ?>
-                    <div class="mb-4 rounded-xl bg-green-500/10 border border-green-500/30 text-green-300 px-4 py-3 text-sm font-bold"><?= e($shipsMessage) ?></div>
+                    <div class="mb-4 rounded-xl bg-[#00e07a]/10 border border-[#00e07a]/30 text-[#00e07a] px-4 py-3 text-sm font-bold"><?= e($shipsMessage) ?></div>
                 <?php endif; ?>
                 <?php if ($shipsError): ?>
                     <div class="mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 text-sm font-bold"><?= e($shipsError) ?></div>
@@ -945,13 +946,13 @@
                         ?>
                         <div class="bg-black/30 border border-white/10 rounded-xl p-4">
                             <div class="font-black text-white"><?= e($info['name']) ?></div>
-                            <p class="text-gray-400 text-xs mt-1"><?= e($info['description']) ?></p>
+                            <p class="text-gray-500 text-xs mt-1"><?= e($info['description']) ?></p>
 
                             <div class="flex gap-2 mt-3 text-[10px] font-bold">
-                                <span class="px-2 py-1 rounded-lg <?= $half1 ? 'bg-white/10 text-gray-400' : 'bg-green-500/10 text-green-300' ?>">
+                                <span class="px-2 py-1 rounded-lg <?= $half1 ? 'bg-white/10 text-gray-400' : 'bg-[#00e07a]/10 text-[#00e07a]' ?>">
                                     1st Half: <?= $half1 ? ('Used GW' . (int)$half1['gameweek']) : 'Available' ?>
                                 </span>
-                                <span class="px-2 py-1 rounded-lg <?= $half2 ? 'bg-white/10 text-gray-400' : 'bg-green-500/10 text-green-300' ?>">
+                                <span class="px-2 py-1 rounded-lg <?= $half2 ? 'bg-white/10 text-gray-400' : 'bg-[#00e07a]/10 text-[#00e07a]' ?>">
                                     2nd Half: <?= $half2 ? ('Used GW' . (int)$half2['gameweek']) : 'Available' ?>
                                 </span>
                             </div>
@@ -961,13 +962,13 @@
                                     <form method="POST" onsubmit="return confirm('Activate Double Up for Gameweek <?= $gameweek ?>? Every match will be worth double points and your normal Double Pick will be cleared.');">
                                         <input type="hidden" name="gameweek" value="<?= $gameweek ?>">
                                         <input type="hidden" name="activate_ship" value="DOUBLE_ALL">
-                                        <button type="submit" <?= $canUse ? '' : 'disabled title="' . e($cantReason) . '"' ?> class="w-full px-4 py-2 rounded-lg font-black text-xs transition <?= $canUse ? 'bg-gradient-to-br from-yellow-300 to-yellow-400 text-[#160018] hover:-translate-y-0.5 hover:shadow-lg' : 'bg-white/5 text-gray-500 border border-white/10 opacity-60 cursor-not-allowed' ?>">
+                                        <button type="submit" <?= $canUse ? '' : 'disabled title="' . e($cantReason) . '"' ?> class="w-full px-4 py-2 rounded-lg font-black text-xs transition <?= $canUse ? 'bg-gradient-to-br from-yellow-300 to-yellow-400 text-[#0d0620] hover:-translate-y-0.5 hover:shadow-lg' : 'bg-white/5 text-gray-500 border border-white/10 opacity-60 cursor-not-allowed' ?>">
                                             <?= $canUse ? 'Activate Double Up' : 'Not Available' ?>
                                         </button>
                                     </form>
                                 <?php else: ?>
                                     <?php if ($canUse): ?>
-                                        <a href="ships_five_picks.php?gameweek=<?= $gameweek ?>" class="block text-center w-full px-4 py-2 rounded-lg font-black text-xs bg-gradient-to-br from-purple-400 to-pink-500 text-white transition hover:-translate-y-0.5 hover:shadow-lg">Pick Your Five</a>
+                                        <a href="ships_five_picks.php?gameweek=<?= $gameweek ?>" class="block text-center w-full px-4 py-2 rounded-lg font-black text-xs bg-gradient-to-br from-purple-400 to-purple-500 text-white transition hover:-translate-y-0.5 hover:shadow-lg">Pick Your Five</a>
                                     <?php else: ?>
                                         <button type="button" disabled title="<?= e($cantReason) ?>" class="w-full px-4 py-2 rounded-lg font-black text-xs bg-white/5 text-gray-500 border border-white/10 opacity-60 cursor-not-allowed">Not Available</button>
                                     <?php endif; ?>
@@ -984,40 +985,40 @@
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
             <div>
                 <h2 class="text-2xl sm:text-3xl font-black text-white">Gameweek <?= (int)$gameweek ?> Statistics</h2>
-                <p class="text-gray-400 text-sm mt-1">Live statistics for this gameweek</p>
+                <p class="text-gray-500 text-sm mt-1">Live statistics for this gameweek</p>
             </div>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div class="bg-white/5 border border-white/10 rounded-2xl p-5">
-                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider">Participants</div>
+                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">Participants</div>
                 <div class="text-3xl font-black text-white mt-2"><?= (int)$gameweekStats['participants'] ?></div>
             </div>
             <div class="bg-white/5 border border-white/10 rounded-2xl p-5">
-                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider">Predictions</div>
-                <div class="text-3xl font-black text-pink-400 mt-2"><?= (int)$gameweekStats['total_predictions'] ?></div>
+                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">Predictions</div>
+                <div class="text-3xl font-black text-[#00e07a] mt-2"><?= (int)$gameweekStats['total_predictions'] ?></div>
             </div>
             <div class="bg-white/5 border border-white/10 rounded-2xl p-5">
-                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider">Highest Score</div>
+                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">Highest Score</div>
                 <div class="text-3xl font-black text-yellow-300 mt-2"><?= (int)$gameweekStats['highest_score'] ?></div>
             </div>
             <div class="bg-white/5 border border-white/10 rounded-2xl p-5">
-                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider">Average Points</div>
-                <div class="text-3xl font-black text-blue-400 mt-2"><?= htmlspecialchars((string)$gameweekStats['average_points']) ?></div>
+                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">Average Points</div>
+                <div class="text-3xl font-black text-[#008a66] mt-2"><?= htmlspecialchars((string)$gameweekStats['average_points']) ?></div>
             </div>
             <div class="bg-white/5 border border-white/10 rounded-2xl p-5">
-                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider">Finished Matches</div>
-                <div class="text-3xl font-black text-green-400 mt-2"><?= (int)$gameweekStats['finished_matches'] ?><span class="text-base text-gray-500">/<?= (int)$gameweekStats['total_matches'] ?></span></div>
+                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">Finished Matches</div>
+                <div class="text-3xl font-black text-[#00e07a] mt-2"><?= (int)$gameweekStats['finished_matches'] ?><span class="text-base text-gray-500">/<?= (int)$gameweekStats['total_matches'] ?></span></div>
             </div>
             <div class="bg-white/5 border border-white/10 rounded-2xl p-5">
-                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider">Remaining</div>
+                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">Remaining</div>
                 <div class="text-3xl font-black text-orange-400 mt-2"><?= (int)$gameweekStats['remaining_matches'] ?></div>
             </div>
             <div class="bg-white/5 border border-white/10 rounded-2xl p-5">
-                <div class="text-gray-400 text-xs font-bold uppercase tracking-wider">Exact Predictions</div>
+                <div class="text-gray-500 text-xs font-bold uppercase tracking-wider">Exact Predictions</div>
                 <div class="text-3xl font-black text-purple-400 mt-2"><?= (int)$gameweekStats['exact_predictions'] ?></div>
             </div>
-            <div class="bg-gradient-to-br from-pink-500/20 to-purple-500/10 border border-pink-500/30 rounded-2xl p-5">
-                <div class="text-pink-300 text-xs font-bold uppercase tracking-wider">Your Rank</div>
+            <div class="bg-gradient-to-br from-[#00e07a]/15 to-[#005c44]/10 border border-[#00e07a]/30 rounded-2xl p-5">
+                <div class="text-[#00e07a] text-xs font-bold uppercase tracking-wider">Your Rank</div>
                 <div class="text-3xl font-black text-white mt-2">
                     <?php if ($gameweekStats['your_rank'] !== null): ?>#<?= (int)$gameweekStats['your_rank'] ?><?php else: ?>—<?php endif; ?>
                 </div>
@@ -1031,7 +1032,6 @@
         </div>
     <?php else: ?>
 
-        <!-- Matches Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
 
             <?php foreach ($matches as $match): ?>
@@ -1093,9 +1093,6 @@
 
                 $has_prediction = $predicted_home !== null && $predicted_away !== null;
 
-                // score_exact.points is already the FINAL points for this
-                // match (points_helper.php doubles it once when this match
-                // is the user's Double Pick). Never multiply it again here.
                 $display_points = $match['points'];
 
                 ?>
@@ -1122,15 +1119,15 @@
                         </div>
                     <?php endif; ?>
 
-                    <div class="bg-black/30 border-b border-white/10 text-center py-2 px-4">
-                        <span class="inline-flex items-center px-3 py-0.5 rounded-full bg-pink-500/10 border border-pink-500/30 text-pink-300 text-[10px] font-black uppercase tracking-wider"><?= e($match['competition'] ?? 'Unknown Competition') ?></span>
-                        <div class="text-gray-400 text-xs mt-1"><?= date('D, d M Y • H:i', strtotime($match['match_date'])) ?></div>
+                    <div class="bg-black/40 border-b border-white/10 text-center py-2 px-4">
+                        <span class="inline-flex items-center px-3 py-0.5 rounded-full bg-[#00e07a]/10 border border-[#00e07a]/30 text-[#00e07a] text-[10px] font-black uppercase tracking-wider"><?= e($match['competition'] ?? 'Unknown Competition') ?></span>
+                        <div class="text-gray-500 text-xs mt-1"><?= date('D, d M Y • H:i', strtotime($match['match_date'])) ?></div>
                     </div>
 
                     <div class="p-4">
                         <div class="flex flex-row items-center justify-center gap-6">
                             <div class="flex flex-col items-center gap-1 text-center w-1/3">
-                                <span class="text-[9px] font-black uppercase tracking-wider text-blue-400">HOME</span>
+                                <span class="text-[9px] font-black uppercase tracking-wider text-[#00e07a]">HOME</span>
                                 <?php if ($home_logo): ?>
                                     <img src="<?= e($home_logo) ?>" alt="<?= e($match['home_team']) ?>" class="w-14 h-14 object-contain drop-shadow" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
                                     <div class="w-14 h-14 hidden items-center justify-center bg-white/10 rounded-full text-gray-400 font-black text-lg"><?= e(mb_strtoupper(mb_substr((string)$match['home_team'], 0, 1))) ?></div>
@@ -1150,12 +1147,12 @@
                                     <?php else: ?><span class="text-2xl font-black text-white">-</span><?php endif; ?>
                                 <?php endif; ?>
                                 <?php if ($predictionStatus === 'exact'): ?>
-                                    <div class="mt-1 flex items-center justify-center gap-1 rounded-lg bg-green-500/15 border border-green-500/30 px-2 py-0.5">
-                                        <span class="text-xs font-bold text-green-400">Perfect</span>
+                                    <div class="mt-1 flex items-center justify-center gap-1 rounded-lg bg-[#00e07a]/15 border border-[#00e07a]/30 px-2 py-0.5">
+                                        <span class="text-xs font-bold text-[#00e07a]">Perfect</span>
                                     </div>
                                 <?php elseif ($predictionStatus === 'correct'): ?>
-                                    <div class="mt-1 flex items-center justify-center gap-1 rounded-lg bg-blue-500/15 border border-green-500/30 px-2 py-0.5">
-                                        <span class="text-xs font-bold text-green-400">Correct</span>
+                                    <div class="mt-1 flex items-center justify-center gap-1 rounded-lg bg-[#008a66]/15 border border-[#00e07a]/30 px-2 py-0.5">
+                                        <span class="text-xs font-bold text-[#00e07a]">Correct</span>
                                     </div>
                                 <?php elseif ($predictionStatus === 'wrong'): ?>
                                     <div class="mt-1 flex items-center justify-center gap-1 rounded-lg bg-red-500/15 border border-red-500/30 px-2 py-0.5">
@@ -1164,7 +1161,7 @@
                                 <?php endif; ?>
                             </div>
                             <div class="flex flex-col items-center gap-1 text-center w-1/3">
-                                <span class="text-[9px] font-black uppercase tracking-wider text-pink-400">AWAY</span>
+                                <span class="text-[9px] font-black uppercase tracking-wider text-[#008a66]">AWAY</span>
                                 <?php if ($away_logo): ?>
                                     <img src="<?= e($away_logo) ?>" alt="<?= e($match['away_team']) ?>" class="w-14 h-14 object-contain drop-shadow" onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
                                     <div class="w-14 h-14 hidden items-center justify-center bg-white/10 rounded-full text-gray-400 font-black text-lg"><?= e(mb_strtoupper(mb_substr((string)$match['away_team'], 0, 1))) ?></div>
@@ -1178,18 +1175,16 @@
 
                     <div class="bg-black/40 border-t border-white/10 p-2">
 
-                        <!-- Details toggle button -->
                         <div class="mt-1 text-center">
                             <button onclick="toggleMatchDetails(this)" data-target="match-details-<?= $match_id ?>" class="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-3 py-1 rounded-lg font-bold text-xs transition">
                                 Details
                             </button>
                         </div>
 
-                        <!-- Hidden details section -->
                         <div id="match-details-<?= $match_id ?>" class="hidden mt-2 rounded-xl bg-black/40 border border-white/10 p-3 text-sm">
                             <div class="grid grid-cols-2 gap-2 text-center">
                                 <div class="bg-white/5 rounded-lg p-2">
-                                    <div class="text-[10px] text-gray-400 uppercase font-bold">Prediction</div>
+                                    <div class="text-[10px] text-gray-500 uppercase font-bold">Prediction</div>
                                     <div class="text-base font-black mt-1">
                                         <?php if ($has_prediction): ?>
                                             <?= (int)$predicted_home ?> - <?= (int)$predicted_away ?>
@@ -1199,7 +1194,7 @@
                                     </div>
                                 </div>
                                 <div class="bg-white/5 rounded-lg p-2">
-                                    <div class="text-[10px] text-gray-400 uppercase font-bold">Actual</div>
+                                    <div class="text-[10px] text-gray-500 uppercase font-bold">Actual</div>
                                     <div class="text-base font-black mt-1">
                                         <?php if ($match['home_score'] !== null && $match['away_score'] !== null): ?>
                                             <?= (int)$match['home_score'] ?> - <?= (int)$match['away_score'] ?>
@@ -1209,11 +1204,11 @@
                                     </div>
                                 </div>
                                 <div class="bg-white/5 rounded-lg p-2 col-span-2">
-                                    <div class="text-[10px] text-gray-400 uppercase font-bold">Status</div>
+                                    <div class="text-[10px] text-gray-500 uppercase font-bold">Status</div>
                                     <div class="mt-1">
                                         <?php if ($match['home_score'] !== null && $match['away_score'] !== null): ?>
                                             <?php if ($predictionStatus === 'exact'): ?>
-                                                <span class="inline-block px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 font-bold">Perfect</span>
+                                                <span class="inline-block px-2 py-0.5 rounded-full bg-[#00e07a]/20 text-[#00e07a] font-bold">Perfect</span>
                                             <?php elseif ($predictionStatus === 'correct'): ?>
                                                 <span class="inline-block px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-300 font-bold">Correct</span>
                                             <?php elseif ($predictionStatus === 'wrong'): ?>
@@ -1222,27 +1217,27 @@
                                                 <span class="text-gray-400">-</span>
                                             <?php endif; ?>
                                         <?php else: ?>
-                                            <span class="text-gray-400">Not yet determined</span>
+                                            <span class="text-gray-500">Not yet determined</span>
                                         <?php endif; ?>
                                     </div>
                                 </div>
                                 <div class="bg-white/5 rounded-lg p-2">
-                                    <div class="text-[10px] text-gray-400 uppercase font-bold">Double</div>
+                                    <div class="text-[10px] text-gray-500 uppercase font-bold">Double</div>
                                     <div class="mt-1">
                                         <?php if ($is_double): ?>
                                             <span class="text-yellow-300 font-bold">Yes (2×)</span>
                                         <?php else: ?>
-                                            <span class="text-gray-400">No</span>
+                                            <span class="text-gray-500">No</span>
                                         <?php endif; ?>
                                     </div>
                                 </div>
                                 <div class="bg-white/5 rounded-lg p-2">
-                                    <div class="text-[10px] text-gray-400 uppercase font-bold">Points</div>
+                                    <div class="text-[10px] text-gray-500 uppercase font-bold">Points</div>
                                     <div class="mt-1">
                                         <?php if ($display_points !== null): ?>
                                             <span class="font-black text-base"><?= (int)$display_points ?></span>
                                         <?php else: ?>
-                                            <span class="text-gray-400">-</span>
+                                            <span class="text-gray-500">-</span>
                                         <?php endif; ?>
                                     </div>
                                 </div>
@@ -1263,15 +1258,18 @@
                                     <form method="POST" onsubmit="return confirm('Choose this match as your Double Pick? You can only select one Double Pick for this gameweek.');">
                                         <input type="hidden" name="gameweek" value="<?= $gameweek ?>">
                                         <input type="hidden" name="double_match" value="<?= $match_id ?>">
-                                        <button type="submit" class="bg-gradient-to-br from-yellow-300 to-yellow-400 text-[#160018] px-3 py-1 rounded-lg font-black text-xs transition hover:-translate-y-0.5 hover:shadow-lg">Double Pick</button>
+                                        <button type="submit" class="bg-gradient-to-br from-yellow-300 to-yellow-400 text-[#0d0620] px-3 py-1 rounded-lg font-black text-xs transition hover:-translate-y-0.5 hover:shadow-lg">Double Pick</button>
                                     </form>
                                 <?php else: ?>
-                                    <div class="text-[10px] text-gray-400 text-center">Double Pick already selected</div>
+                                    <div class="text-[10px] text-gray-500 text-center">Double Pick already selected</div>
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>
 
                     </div>
+                    <?php if ($is_locked): ?>
+                        <?php reactionsRenderBlock($conn, $match_id, $user_id, $reactionsBatch); ?>
+                    <?php endif; ?>
 
                 </div>
 
@@ -1281,16 +1279,15 @@
 
     <?php endif; ?>
 
-    <!-- Gameweek Leaderboard (moved to bottom) -->
     <div class="max-w-6xl mx-auto mb-12">
-        <div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden">
+        <div id="gameweek-leaderboard-card" class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden">
             <div class="px-5 sm:px-7 py-5 border-b border-white/10 flex items-center justify-between">
                 <div>
                     <h2 class="text-xl sm:text-2xl font-black text-white">Gameweek <?= (int)$gameweek ?> Leaderboard</h2>
-                    <p class="text-gray-400 text-sm mt-1">Rankings based on points earned in this gameweek</p>
+                    <p class="text-gray-500 text-sm mt-1">Rankings based on points earned in this gameweek</p>
                 </div>
-                <div class="bg-yellow-400/10 border border-yellow-400/20 px-4 py-2 rounded-xl">
-                    <span class="text-yellow-300 font-black text-sm"><?= (int)$gameweekStats['participants'] ?> Players</span>
+                <div class="bg-[#00e07a]/10 border border-[#00e07a]/20 px-4 py-2 rounded-xl">
+                    <span class="text-[#00e07a] font-black text-sm"><?= (int)$gameweekStats['participants'] ?> Players</span>
                 </div>
             </div>
             <?php if (empty($gameweekLeaderboard)): ?>
@@ -1299,7 +1296,7 @@
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-[650px]">
                         <thead>
-                            <tr class="bg-black/20 text-gray-400 text-xs uppercase tracking-wider">
+                            <tr class="bg-black/20 text-gray-500 text-xs uppercase tracking-wider">
                                 <th class="text-left px-5 py-4">Rank</th>
                                 <th class="text-left px-5 py-4">Player</th>
                                 <th class="text-center px-5 py-4">Predictions</th>
@@ -1310,22 +1307,38 @@
                         <tbody>
                             <?php foreach ($gameweekLeaderboard as $index => $leaderboardUser): ?>
                                 <?php $rank = $index + 1; $isCurrentUser = (int)$leaderboardUser['id'] === (int)$view_user_id; ?>
-                                <tr class="border-t border-white/5 transition <?= $isCurrentUser ? 'bg-pink-500/10' : 'hover:bg-white/5' ?>">
+                                <tr class="border-t border-white/5 transition <?= $isCurrentUser ? 'bg-[#00e07a]/10' : 'hover:bg-white/5' ?>">
                                     <td class="px-5 py-4">
                                         <?php if ($rank === 1): ?><span class="text-xl">1</span>
                                         <?php elseif ($rank === 2): ?><span class="text-xl">2</span>
                                         <?php elseif ($rank === 3): ?><span class="text-xl">3</span>
                                         <?php else: ?><span class="text-gray-400 font-bold">#<?= $rank ?></span><?php endif; ?>
                                     </td>
-                                    <td class="px-5 py-4">
+                                                                       <td class="px-5 py-4">
+                                        <?php
+                                            $rowUserId = (int)$leaderboardUser['id'];
+                                            $rowShip = $shipUsageMapThisGw[$rowUserId] ?? null;
+                                            $rowIsBestManager = $previousGameweekWinner !== null && (int)$previousGameweekWinner['id'] === $rowUserId;
+                                            $rowCanLink = $is_locked && $rowUserId !== $user_id;
+                                        ?>
                                         <div class="flex items-center gap-3">
-                                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-pink-500/30 to-purple-500/30 flex items-center justify-center font-black text-white">
+                                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-[#005c44]/40 to-[#00e07a]/30 flex items-center justify-center font-black text-white border border-[#00e07a]/20">
                                                 <?= htmlspecialchars(strtoupper(substr((string)$leaderboardUser['username'], 0, 1))) ?>
                                             </div>
                                             <div>
-                                                <div class="font-bold text-white flex items-center gap-2">
-                                                    <?= htmlspecialchars($leaderboardUser['username']) ?>
-                                                    <?php if ($isCurrentUser): ?><span class="text-[10px] px-2 py-0.5 rounded-full bg-pink-500 text-black font-black">YOU</span><?php endif; ?>
+                                                <div class="font-bold text-white flex items-center gap-2 flex-wrap">
+                                                    <?php if ($rowCanLink): ?>
+                                                        <a href="my_predictions.php?gameweek=<?= $gameweek ?>&view_user=<?= $rowUserId ?>" class="hover:text-[#00e07a] hover:underline transition-colors"><?= htmlspecialchars($leaderboardUser['username']) ?></a>
+                                                    <?php else: ?>
+                                                        <?= htmlspecialchars($leaderboardUser['username']) ?>
+                                                    <?php endif; ?>
+                                                    <?php if ($isCurrentUser): ?><span class="text-[10px] px-2 py-0.5 rounded-full bg-[#00e07a] text-[#0d0620] font-black">YOU</span><?php endif; ?>
+                                                    <?php if ($rowIsBestManager): ?><span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-400 text-black font-black">👑 BEST MANAGER GW<?= (int)$previousGameweek ?></span><?php endif; ?>
+                                                    <?php if ($rowShip): ?>
+                                                        <span class="text-[10px] px-2 py-0.5 rounded-full font-black <?= $rowShip['ship_code'] === 'DOUBLE_ALL' ? 'bg-yellow-400 text-black' : 'bg-purple-400 text-black' ?>">
+                                                            <?= $rowShip['ship_code'] === 'DOUBLE_ALL' ? 'DOUBLE UP' : 'PERFECT FIVE' ?> · GW<?= (int)$gameweek ?>
+                                                        </span>
+                                                    <?php endif; ?>
                                                 </div>
                                                 <?php if (!empty($leaderboardUser['favorite_team'])): ?><div class="text-xs text-gray-500 mt-0.5"><?= htmlspecialchars($leaderboardUser['favorite_team']) ?></div><?php endif; ?>
                                             </div>
@@ -1348,7 +1361,7 @@
         </div>
     </div>
 
-    <div class="text-center text-gray-500 text-sm mt-10">
+    <div class="text-center text-gray-600 text-sm mt-10">
         <?php if ($is_locked): ?>
             Gameweek locked.<br>
             <?php if ($is_viewing_other_user): ?>
@@ -1377,6 +1390,11 @@
         }
     }
     </script>
+    <?php if ($is_locked): ?>
+    <script src="match_reactions.js"></script>
+    <?php endif; ?>    <?php if ($is_viewing_other_user && $is_locked): ?>
+    <script src="match_reactions.js"></script>
+    <?php endif; ?>
 
     </body>
 

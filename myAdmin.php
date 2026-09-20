@@ -2,22 +2,11 @@
 
 session_start();
 include 'connect.php';
+require_once 'admin_helper.php';
 require_once 'points_helper.php';
 require_once 'ships_helper.php';
-/*
-|--------------------------------------------------------------------------
-| ADMIN CHECK
-|--------------------------------------------------------------------------
-|
-| If your project already has an admin authentication system,
-| replace this section with your existing admin check.
-|
-*/
 
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
-    exit();
-}
+adminRequireAdmin($conn);
 
 
 /*

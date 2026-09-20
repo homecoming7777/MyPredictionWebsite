@@ -10,13 +10,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $email = trim($_POST["email"] ?? "");
     $password = $_POST["password"] ?? "";
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | VALIDATION
-    |--------------------------------------------------------------------------
-    */
-
     if ($username === "") {
 
         $error = "Username is required.";
@@ -35,13 +28,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     } else {
 
-
-        /*
-        |--------------------------------------------------------------------------
-        | CHECK USERNAME / EMAIL
-        |--------------------------------------------------------------------------
-        */
-
         $check = $conn->prepare("
             SELECT id
             FROM users
@@ -49,7 +35,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                OR email = ?
             LIMIT 1
         ");
-
 
         if (!$check) {
 
@@ -67,7 +52,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             $check->store_result();
 
-
             if ($check->num_rows > 0) {
 
                 $error =
@@ -75,36 +59,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             } else {
 
-
-                /*
-                |--------------------------------------------------------------------------
-                | HASH PASSWORD
-                |--------------------------------------------------------------------------
-                */
-
                 $hashedPassword =
                     password_hash(
                         $password,
                         PASSWORD_DEFAULT
                     );
-
-
-                /*
-                |--------------------------------------------------------------------------
-                | CREATE USER
-                |--------------------------------------------------------------------------
-                |
-                | IMPORTANT:
-                |
-                | We ONLY create the user here.
-                |
-                | We DO NOT insert anything into score_exact.
-                |
-                | score_exact is for predictions and requires
-                | a valid match_id.
-                |
-                |--------------------------------------------------------------------------
-                */
 
                 $stmt = $conn->prepare("
                     INSERT INTO users
@@ -123,7 +82,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     )
                 ");
 
-
                 if (!$stmt) {
 
                     $error =
@@ -139,38 +97,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         $hashedPassword
                     );
 
-
                     if ($stmt->execute()) {
-
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | REGISTRATION SUCCESS
-                        |--------------------------------------------------------------------------
-                        */
 
                         $new_user_id =
                             $stmt->insert_id;
-
-
-                        /*
-                        |--------------------------------------------------------------------------
-                        | DO NOT CREATE score_exact ROW HERE
-                        |--------------------------------------------------------------------------
-                        |
-                        | Predictions will be inserted later when
-                        | the user actually makes a prediction.
-                        |
-                        |--------------------------------------------------------------------------
-                        */
-
 
                         header(
                             "Location: login.php?registered=1"
                         );
 
                         exit();
-
 
                     } else {
 
@@ -179,11 +115,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             . $stmt->error;
                     }
 
-
                     $stmt->close();
                 }
             }
-
 
             $check->close();
         }
@@ -214,13 +148,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 
    <style>
-     /* Background image and overlay to match the rest of the site */
      body {
        background-image: url('PL_img/current.jpg');
        background-size: cover;
        background-position: center;
        background-attachment: fixed;
-       background-color: #1c003a;
+       background-color: #05010f;
        font-family: Arial, Helvetica, sans-serif;
      }
      
@@ -231,7 +164,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
        left: 0;
        width: 100%;
        height: 100%;
-       background: rgba(10, 0, 21, 0.75); /* Deep Purple Tint */
+       background: linear-gradient(135deg, rgba(13,6,32,0.96), rgba(0,60,45,0.92), rgba(0,90,50,0.90));
        z-index: -1;
        pointer-events: none;
      }
@@ -253,10 +186,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
   <div
       class="
-          bg-[#1c003a]/80
+          bg-[#0d0620]/80
           backdrop-blur-xl
           border
-          border-[#ff0080]/30
+          border-[#00e07a]/25
           shadow-2xl
           rounded-2xl
           p-8
@@ -278,9 +211,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             border-2
             border-transparent
             bg-gradient-to-r
-            from-[#e90052]
-            via-[#ff0080]
-            to-[#ff9900]
+            from-[#005c44]
+            via-[#008a66]
+            to-[#00e07a]
             opacity-20
             blur-xl
         "
@@ -290,16 +223,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     <div class="relative z-10">
 
 
-      <!-- LOGO -->
-
       <img
           src="PL_img/PL_LOGO1.png"
           alt="PL Logo"
           class="w-20 h-20 mx-auto mb-5"
       >
 
-
-      <!-- TITLE -->
 
       <h1
           class="
@@ -316,8 +245,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
       </h1>
 
-
-      <!-- ERROR -->
 
       <?php if (!empty($error)): ?>
 
@@ -349,8 +276,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       <?php endif; ?>
 
 
-      <!-- FORM -->
-
       <form
           action="register.php"
           method="POST"
@@ -358,14 +283,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
       >
 
 
-        <!-- USERNAME -->
-
         <div class="text-left">
 
           <label
               class="
                   font-bold
-                  text-[#ff0080]
+                  text-[#00e07a]
                   uppercase
                   text-sm
               "
@@ -384,10 +307,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                   py-2
                   bg-transparent
                   border-b-2
-                  border-[#e90052]/50
+                  border-[#008a66]/50
                   text-white
                   outline-none
-                  focus:border-[#ff9900]
+                  focus:border-[#00e07a]
                   transition-all
                   duration-300
                   placeholder-gray-500
@@ -403,14 +326,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         </div>
 
 
-        <!-- EMAIL -->
-
         <div class="text-left">
 
           <label
               class="
                   font-bold
-                  text-[#ff0080]
+                  text-[#00e07a]
                   uppercase
                   text-sm
               "
@@ -429,10 +350,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                   py-2
                   bg-transparent
                   border-b-2
-                  border-[#e90052]/50
+                  border-[#008a66]/50
                   text-white
                   outline-none
-                  focus:border-[#ff9900]
+                  focus:border-[#00e07a]
                   transition-all
                   duration-300
                   placeholder-gray-500
@@ -448,14 +369,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         </div>
 
 
-        <!-- PASSWORD -->
-
         <div class="text-left">
 
           <label
               class="
                   font-bold
-                  text-[#ff0080]
+                  text-[#00e07a]
                   uppercase
                   text-sm
               "
@@ -474,10 +393,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     py-2
                     bg-transparent
                     border-b-2
-                    border-[#e90052]/50
+                    border-[#008a66]/50
                     text-white
                     outline-none
-                    focus:border-[#ff9900]
+                    focus:border-[#00e07a]
                     transition-all
                     duration-300
                     placeholder-gray-500
@@ -491,14 +410,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 autocomplete="new-password"
             >
             
-            <!-- Show/Hide Password Button -->
-            <button type="button" onclick="togglePasswordVisibility()" class="absolute right-0 top-2 text-gray-400 hover:text-[#ff0080] focus:outline-none transition-colors">
-              <!-- Eye Icon (Show Password) -->
+            <button type="button" onclick="togglePasswordVisibility()" class="absolute right-0 top-2 text-gray-400 hover:text-[#00e07a] focus:outline-none transition-colors">
               <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
-              <!-- Eye Off Icon (Hide Password) -->
               <svg id="eyeOffIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
               </svg>
@@ -509,7 +425,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
           <p
               class="
                   text-xs
-                  text-gray-400
+                  text-gray-500
                   mt-1
               "
           >
@@ -521,17 +437,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         </div>
 
 
-        <!-- REGISTER BUTTON -->
-
         <button
             type="submit"
             class="
                 w-full
                 mt-4
                 bg-gradient-to-r
-                from-[#e90052]
-                to-[#ff9900]
-                text-white
+                from-[#005c44]
+                to-[#00e07a]
+                text-[#0d0620]
                 py-3
                 rounded-xl
                 font-black
@@ -542,7 +456,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 transition
                 transform
                 hover:scale-105
-                hover:shadow-[0_8px_25px_rgba(233,0,82,0.30)]
+                hover:shadow-[0_8px_25px_rgba(0,224,122,0.30)]
             "
         >
 
@@ -551,12 +465,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         </button>
 
 
-        <!-- LOGIN -->
-
         <p
             class="
                 mt-4
-                text-gray-300
+                text-gray-400
                 text-sm
             "
         >
@@ -566,7 +478,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             <a
                 href="login.php"
                 class="
-                    text-[#ff9900]
+                    text-[#00e07a]
                     font-bold
                     hover:underline
                 "
@@ -585,7 +497,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
   </div>
 
-  <!-- JavaScript to toggle password visibility -->
   <script>
     function togglePasswordVisibility() {
       const passwordInput = document.getElementById('passwordInput');

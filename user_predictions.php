@@ -3,6 +3,7 @@
 session_start();
 include 'connect.php';
 require_once 'gameweek_deadline.php';
+require_once 'reactions_helper.php';
 
 date_default_timezone_set('Africa/Casablanca');
 
@@ -12,12 +13,6 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $viewer_id = (int) $_SESSION['user_id'];
-
-/*
-|--------------------------------------------------------------------------
-| TEAM LOGO HELPER (identical to other_matches.php, kept in sync)
-|--------------------------------------------------------------------------
-*/
 
 function teamLogo($teamName)
 {
@@ -88,13 +83,6 @@ function teamLogo($teamName)
     return null;
 }
 
-
-/*
-|--------------------------------------------------------------------------
-| TARGET USER
-|--------------------------------------------------------------------------
-*/
-
 $target_user_id = isset($_GET['user_id']) ? (int) $_GET['user_id'] : 0;
 
 if ($target_user_id <= 0) {
@@ -112,13 +100,6 @@ if (!$target_user) {
     header("Location: other_matches.php");
     exit;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| GAMEWEEKS (Other Leagues only, same scope as other_matches.php)
-|--------------------------------------------------------------------------
-*/
 
 $gw_sql = "
     SELECT DISTINCT gameweek
@@ -141,18 +122,6 @@ $last_gameweek = (int)($last_gw_row['last_gw'] ?? 1);
 
 $selected_gw = isset($_GET['gameweek']) ? (int)$_GET['gameweek'] : $last_gameweek;
 
-
-/*
-|--------------------------------------------------------------------------
-| DEADLINE CHECK
-|--------------------------------------------------------------------------
-|
-| Other users' predictions only ever become visible once the deadline for
-| that gameweek has passed - enforced here too (not just on the page that
-| links here) so a direct URL can't be used to peek early.
-|
-*/
-
 $deadlinePassed = isGameweekDeadlinePassed(
     $conn,
     $selected_gw
@@ -162,13 +131,6 @@ if (!$deadlinePassed) {
     header("Location: other_matches.php?gameweek=" . $selected_gw);
     exit;
 }
-
-
-/*
-|--------------------------------------------------------------------------
-| THAT USER'S PREDICTIONS (read-only)
-|--------------------------------------------------------------------------
-*/
 
 $sql = "
     SELECT
@@ -198,6 +160,16 @@ $stmt->bind_param("ii", $target_user_id, $selected_gw);
 $stmt->execute();
 $result = $stmt->get_result();
 
+$matches = [];
+while ($row = $result->fetch_assoc()) {
+    $matches[] = $row;
+}
+
+$matchIds = array_map(static function ($match) {
+    return (int)($match['id'] ?? 0);
+}, $matches);
+$reactionsBatch = reactionsGetBatchSummary($conn, $matchIds, $viewer_id, true);
+
 ?>
 
 <!DOCTYPE html>
@@ -217,15 +189,17 @@ $result = $stmt->get_result();
 <style>
 
 :root {
-    --pl-dark: #06060a;
-    --pl-purple: #1a0030;
-    --pl-accent: #00ff9d;
-    --card: #120014;
+    --pl-dark: #0d0620;
+    --pl-purple: #1a0836;
+    --pl-teal: #005c44;
+    --pl-accent: #00e07a;
+    --card: #0d0620;
     --muted: #bfb7c6;
 }
 
 body {
     background: url('PL_img/22.jpg') center/cover no-repeat fixed;
+    background-color: #05010f;
 }
 
 body::before {
@@ -235,7 +209,7 @@ body::before {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(10, 0, 21, 0.65);
+    background: linear-gradient(135deg, rgba(13,6,32,0.96), rgba(0,60,45,0.92), rgba(0,90,50,0.90));
     z-index: -1;
     pointer-events: none;
 }
@@ -247,8 +221,8 @@ body::before {
     background: transparent;
     border-radius: 50%;
     padding: 6px;
-    border: 3px solid rgba(0,255,157,.35);
-    box-shadow: 0 8px 30px rgba(0,0,0,.5), inset 0 0 15px rgba(0,255,157,.08);
+    border: 3px solid rgba(0,224,122,.35);
+    box-shadow: 0 8px 30px rgba(0,0,0,.5), inset 0 0 15px rgba(0,224,122,.08);
     transition: all .3s ease;
 }
 
@@ -260,10 +234,10 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 3px solid rgba(0,255,157,.4);
+    border: 3px solid rgba(0,224,122,.4);
     font-size: 0.7rem;
     font-weight: 900;
-    color: #f7f2fa;
+    color: #e4f2ec;
     text-align: center;
     padding: 6px;
     box-shadow: 0 8px 30px rgba(0,0,0,.5);
@@ -279,9 +253,9 @@ body::before {
 }
 
 .match-card {
-    background: linear-gradient(180deg, rgba(255,255,255,.055), rgba(255,255,255,.018));
-    border: 1px solid rgba(255,255,255,.09);
-    box-shadow: 0 18px 50px rgba(0,0,0,.40);
+    background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.01));
+    border: 1px solid rgba(0,224,122,.12);
+    box-shadow: 0 18px 50px rgba(0,0,0,.60);
     backdrop-filter: blur(14px);
 }
 
@@ -290,7 +264,7 @@ body::before {
 }
 
 .nav-link:hover {
-    color: #00ff9d;
+    color: #00e07a;
 }
 
 .text-accent {
@@ -314,14 +288,14 @@ body::before {
 }
 
 .pred-box {
-    background: rgba(0,0,0,.35);
-    border: 2px solid rgba(0,255,157,.35);
-    color: #ffd86b;
+    background: rgba(0,0,0,.45);
+    border: 2px solid rgba(0,224,122,.35);
+    color: #00e07a;
 }
 
 .league-title {
-    background: linear-gradient(90deg, rgba(0,255,157,.15), rgba(26,0,48,.25), rgba(0,255,157,.15));
-    border: 1px solid rgba(0,255,157,.20);
+    background: linear-gradient(90deg, rgba(0,224,122,.10), rgba(13,6,32,.35), rgba(0,224,122,.10));
+    border: 1px solid rgba(0,224,122,.20);
 }
 
 .team-name {
@@ -336,15 +310,15 @@ body::before {
 }
 
 .badge-exact {
-    background: rgba(250,204,21,.12);
-    color: #facc15;
-    border: 1px solid rgba(250,204,21,.35);
+    background: rgba(0,224,122,.12);
+    color: #00e07a;
+    border: 1px solid rgba(0,224,122,.35);
 }
 
 .badge-correct {
-    background: rgba(96,165,250,.12);
-    color: #60a5fa;
-    border: 1px solid rgba(96,165,250,.35);
+    background: rgba(0,138,102,.12);
+    color: #4fdcb8;
+    border: 1px solid rgba(0,138,102,.35);
 }
 
 .badge-wrong {
@@ -365,7 +339,7 @@ body::before {
 
 <body class="min-h-screen text-white">
 
-<nav class="fixed top-0 left-0 right-0 z-50 bg-black/65 backdrop-blur-2xl border-b border-white/10 px-5 md:px-8 py-4 flex justify-between items-center">
+<nav class="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-2xl border-b border-[#00e07a]/20 px-5 md:px-8 py-4 flex justify-between items-center">
 
     <a href="dashboard.php" class="flex items-center gap-3">
         <div class="w-11 h-11 rounded-full p-1 flex items-center justify-center">
@@ -375,10 +349,10 @@ body::before {
     </a>
 
     <div class="hidden md:flex items-center gap-7 text-sm font-semibold">
-        <a href="dashboard.php" class="nav-link">Dashboard</a>
-        <a href="predictions.php" class="nav-link">Predictions</a>
-        <a href="leaderboard.php" class="nav-link">Leaderboard</a>
-        <a href="my_predictions.php" class="nav-link">My Predictions</a>
+        <a href="dashboard.php" class="nav-link text-gray-400">Dashboard</a>
+        <a href="predictions.php" class="nav-link text-gray-400">Predictions</a>
+        <a href="leaderboard.php" class="nav-link text-gray-400">Leaderboard</a>
+        <a href="my_predictions.php" class="nav-link text-gray-400">My Predictions</a>
     </div>
 
     <button onclick="toggleMenu()" class="md:hidden text-white focus:outline-none">
@@ -389,7 +363,7 @@ body::before {
 
 </nav>
 
-<div id="mobileMenu" class="hidden bg-[#1a0030]/95 backdrop-blur-xl flex-col text-white py-2 px-0 fixed top-16 left-0 w-full z-40 md:hidden border-b border-white/10">
+<div id="mobileMenu" class="hidden bg-black/95 backdrop-blur-xl flex-col text-white py-2 px-0 fixed top-16 left-0 w-full z-40 md:hidden border-b border-[#00e07a]/20">
     <a href="dashboard.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Dashboard</a>
     <a href="predictions.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Predictions</a>
     <a href="leaderboard.php" class="nav-link w-full block py-3 px-6 border-b border-white/10 text-center hover:bg-white/5" onclick="toggleMenu()">Leaderboard</a>
@@ -402,19 +376,19 @@ function toggleMenu() {
 }
 </script>
 
-<div class="w-full mt-24 max-w-6xl mx-auto bg-card backdrop-blur-md rounded-2xl shadow-2xl p-5 sm:p-6 mb-10 border border-white/10">
+<div class="w-full mt-24 max-w-6xl mx-auto bg-card backdrop-blur-md rounded-2xl shadow-2xl p-5 sm:p-6 mb-10 border border-[#00e07a]/15">
 
 <div class="text-center mb-8">
     <h1 class="text-3xl sm:text-4xl font-black text-accent">
         <?= htmlspecialchars($target_user['username']) ?>'s Predictions
     </h1>
-    <p class="text-gray-400 mt-2">Gameweek <?= (int)$selected_gw ?> · Read-only</p>
+    <p class="text-gray-500 mt-2">Gameweek <?= (int)$selected_gw ?> · Read-only</p>
 </div>
 
 <form method="GET" class="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
     <input type="hidden" name="user_id" value="<?= (int)$target_user_id ?>">
     <label for="gameweek" class="text-muted text-sm font-semibold">Select Gameweek:</label>
-    <select name="gameweek" id="gameweek" class="bg-[#120014] border border-accent text-white px-4 py-2.5 rounded-xl outline-none font-bold cursor-pointer" onchange="this.form.submit()">
+    <select name="gameweek" id="gameweek" class="bg-[#0d0620] border border-accent text-white px-4 py-2.5 rounded-xl outline-none font-bold cursor-pointer" onchange="this.form.submit()">
         <?php while ($gw = $gw_result->fetch_assoc()):
             $gw_num = (int)$gw['gameweek'];
             $selected = ($selected_gw == $gw_num) ? 'selected' : '';
@@ -426,7 +400,7 @@ function toggleMenu() {
     </select>
 </form>
 
-<?php if ($result->num_rows === 0): ?>
+<?php if (count($matches) === 0): ?>
 
     <div class="text-center text-muted py-12 bg-white/5 rounded-2xl border border-white/10">
         <div class="text-5xl mb-4">⚽</div>
@@ -439,7 +413,7 @@ function toggleMenu() {
 
     <div class="space-y-6">
 
-    <?php while ($match = $result->fetch_assoc()): ?>
+    <?php foreach ($matches as $match): ?>
 
         <?php if ($match['competition'] !== $current_league): ?>
             <?php $current_league = $match['competition']; ?>
@@ -548,17 +522,21 @@ function toggleMenu() {
 
         </div>
 
-    <?php endwhile; ?>
+        <?php reactionsRenderBlock($conn, (int)$match['id'], $viewer_id, $reactionsBatch); ?>
+
+    <?php endforeach; ?>
 
     </div>
 
 <?php endif; ?>
 
 <div class="text-center mt-8 pb-4">
-    <a href="other_matches.php?gameweek=<?= (int)$selected_gw ?>" class="text-accent underline text-sm sm:text-base font-semibold hover:text-pink-300">← Back to Other Leagues Predictions</a>
+    <a href="other_matches.php?gameweek=<?= (int)$selected_gw ?>" class="text-accent underline text-sm sm:text-base font-semibold hover:text-[#00b862]">← Back to Other Leagues Predictions</a>
 </div>
 
 </div>
+
+<script src="match_reactions.js"></script>
 
 </body>
 

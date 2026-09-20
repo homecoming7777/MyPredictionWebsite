@@ -2,6 +2,8 @@
 
 session_start();
 include 'connect.php';
+require_once 'analytics_helper.php';
+require_once 'rating_helper.php';
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -29,9 +31,6 @@ function teamLogo($logo)
     $logo = str_replace('\\', '/', $logo);
     $logo = ltrim($logo, '/');
 
-    // Keep the logo path stored in the teams table.
-    // This supports PL_Teams, LaLiga_Teams, SerieA_Teams,
-    // Bundesliga_Teams, Botola_Teams, and any future league folder.
     if (strpos($logo, 'MyPredictionWebsite/') === 0) {
         $logo = substr($logo, strlen('MyPredictionWebsite/'));
     }
@@ -70,6 +69,10 @@ if ($user_stmt) {
     $user_stmt->close();
 }
 
+$ratingSelect = analyticsRatingColumnExists($conn)
+    ? 'COALESCE(u.prediction_rating, 1500) AS prediction_rating'
+    : '1500 AS prediction_rating';
+
 $leaderboard_sql = "
 
     SELECT
@@ -81,6 +84,8 @@ $leaderboard_sql = "
         u.favorite_team,
 
         t.logo AS team_logo,
+
+        {$ratingSelect},
 
         COUNT(DISTINCT p.id) AS predictions_count,
 
@@ -161,6 +166,9 @@ while ($row = $result->fetch_assoc()) {
 
     $row['wrong_predictions'] =
         (int)$row['wrong_predictions'];
+
+    $row['prediction_rating'] =
+        (int)($row['prediction_rating'] ?? 1500);
 
     $players[] = $row;
 }
@@ -265,7 +273,9 @@ $my_stats = [
 
     'correct' => 0,
 
-    'wrong' => 0
+    'wrong' => 0,
+
+    'rating' => 1500
 ];
 
 foreach ($players as $index => $player) {
@@ -290,7 +300,10 @@ foreach ($players as $index => $player) {
                 (int)$player['correct_results'],
 
             'wrong' =>
-                (int)$player['wrong_predictions']
+                (int)$player['wrong_predictions'],
+
+            'rating' =>
+                (int)$player['prediction_rating']
         ];
 
         break;
@@ -414,8 +427,8 @@ body {
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
-    background-color: #1c003a;
-    color: #f7f2fa;
+    background-color: #05010f;
+    color: #e4f2ec;
     font-family: Arial, Helvetica, sans-serif;
 }
 
@@ -426,16 +439,16 @@ body::before {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(28, 0, 58, 0.65);
+    background: linear-gradient(135deg, rgba(13,6,32,0.96), rgba(0,60,45,0.92), rgba(0,90,50,0.90));
     z-index: -1;
     pointer-events: none;
 }
 
 .card {
-    background: rgba(28, 0, 58, 0.85);
-    border: 1px solid rgba(255, 0, 128, 0.30);
-    backdrop-filter: blur(12px);
-    box-shadow: 0 0 40px rgba(233, 0, 82, 0.25);
+    background: rgba(13, 6, 32, 0.80);
+    border: 1px solid rgba(0, 224, 122, 0.15);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 0 40px rgba(0, 224, 122, 0.10);
 }
 
 .stat-card {
@@ -451,31 +464,49 @@ body::before {
     height: 100px;
     right: -40px;
     top: -40px;
-    background: rgba(255, 153, 0, 0.15);
+    background: rgba(0, 224, 122, 0.10);
     border-radius: 50%;
 }
 
 .stat-card:hover {
     transform: translateY(-4px);
-    border-color: rgba(255, 0, 128, 0.60);
+    border-color: rgba(0, 224, 122, 0.45);
 }
 
 .player-row {
     background: rgba(255,255,255,.025);
     border: 1px solid rgba(255,255,255,.06);
     transition: .2s ease;
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
 }
 
 .player-row:hover {
-    background: rgba(233,0,82,.075);
-    border-color: rgba(233,0,82,.30);
+    background: rgba(0,224,122,.06);
+    border-color: rgba(0,224,122,.28);
     transform: translateX(-2px);
 }
 
+.rating-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 88px;
+    padding: 0.35rem 0.55rem;
+    border-radius: 9999px;
+    border-width: 1px;
+    font-size: 0.7rem;
+    font-weight: 900;
+    line-height: 1.1;
+    text-align: center;
+}
+
 .my-row {
-    border: 1px solid rgba(255, 0, 128, 0.65);
-    background: linear-gradient(90deg, rgba(233,0,82,.15), rgba(28,0,58,.18));
-    box-shadow: 0 0 25px rgba(233,0,82,.10);
+    border: 1px solid rgba(0, 224, 122, 0.55);
+    background: linear-gradient(90deg, rgba(0,224,122,.12), rgba(13,6,32,.22));
+    box-shadow: 0 0 25px rgba(0,224,122,.08);
 }
 
 .team-logo {
@@ -500,7 +531,7 @@ body::before {
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #ff9900, #e90052);
+    background: linear-gradient(90deg, #005c44, #00e07a);
     border-radius: 999px;
 }
 
@@ -530,10 +561,10 @@ body::before {
         left-0
         right-0
         z-50
-        bg-[#1c003a]/80
+        bg-black/80
         backdrop-blur-xl
         border-b
-        border-[#ff0080]/30
+        border-[#00e07a]/20
         px-5
         md:px-8
         py-4
@@ -604,7 +635,8 @@ body::before {
         <a
             href="dashboard.php"
             class="
-                hover:text-[#ff9900]
+                text-gray-400
+                hover:text-[#00e07a]
                 transition
             "
         >
@@ -614,7 +646,8 @@ body::before {
         <a
             href="predictions.php"
             class="
-                hover:text-[#ff9900]
+                text-gray-400
+                hover:text-[#00e07a]
                 transition
             "
         >
@@ -624,7 +657,7 @@ body::before {
         <a
             href="leaderboard.php"
             class="
-                text-[#ff0080]
+                text-[#00e07a]
             "
         >
             Leaderboard
@@ -633,11 +666,23 @@ body::before {
         <a
             href="my_predictions.php"
             class="
-                hover:text-[#ff9900]
+                text-gray-400
+                hover:text-[#00e07a]
                 transition
             "
         >
             My Predictions
+        </a>
+
+        <a
+            href="team_stats.php"
+            class="
+                text-gray-400
+                hover:text-[#00e07a]
+                transition
+            "
+        >
+            Team Stats
         </a>
 
     </div>
@@ -667,10 +712,10 @@ body::before {
         left-0
         right-0
         z-40
-        bg-[#1c003a]/95
+        bg-black/95
         backdrop-blur-xl
         border-b
-        border-[#ff0080]/30
+        border-[#00e07a]/20
         p-6
     "
 >
@@ -684,23 +729,27 @@ body::before {
         "
     >
 
-        <a href="dashboard.php" class="hover:text-[#ff9900] transition">
+        <a href="dashboard.php" class="text-gray-400 hover:text-[#00e07a] transition">
             Dashboard
         </a>
 
-        <a href="predictions.php" class="hover:text-[#ff9900] transition">
+        <a href="predictions.php" class="text-gray-400 hover:text-[#00e07a] transition">
             Predictions
         </a>
 
         <a
             href="leaderboard.php"
-            class="text-[#ff0080]"
+            class="text-[#00e07a]"
         >
             Leaderboard
         </a>
 
-        <a href="my_predictions.php" class="hover:text-[#ff9900] transition">
+        <a href="my_predictions.php" class="text-gray-400 hover:text-[#00e07a] transition">
             My Predictions
+        </a>
+
+        <a href="team_stats.php" class="text-gray-400 hover:text-[#00e07a] transition">
+            Team Stats
         </a>
 
     </div>
@@ -778,7 +827,7 @@ function toggleMenu()
 
             <div
                 class="
-                    text-[#ff0080]
+                    text-[#00e07a]
                     text-sm
                     font-black
                     uppercase
@@ -801,7 +850,7 @@ function toggleMenu()
 
             <p
                 class="
-                    text-gray-300
+                    text-gray-500
                     mt-1
                 "
             >
@@ -827,7 +876,7 @@ function toggleMenu()
             <div
                 class="
                     text-xs
-                    text-gray-400
+                    text-gray-500
                     uppercase
                     font-bold
                 "
@@ -839,7 +888,7 @@ function toggleMenu()
                 class="
                     text-3xl
                     font-black
-                    text-[#ff9900]
+                    text-[#00e07a]
                 "
             >
                 #<?= $my_rank ?>
@@ -875,7 +924,7 @@ function toggleMenu()
                 text-xs
                 uppercase
                 font-bold
-                text-gray-400
+                text-gray-500
             "
         >
             Total Users
@@ -908,7 +957,7 @@ function toggleMenu()
                 text-xs
                 uppercase
                 font-bold
-                text-gray-400
+                text-gray-500
             "
         >
             Predictions
@@ -941,7 +990,7 @@ function toggleMenu()
                 text-xs
                 uppercase
                 font-bold
-                text-gray-400
+                text-gray-500
             "
         >
             Total Points
@@ -951,7 +1000,7 @@ function toggleMenu()
             class="
                 text-3xl
                 font-black
-                text-[#ff0080]
+                text-[#00e07a]
                 mt-1
             "
         >
@@ -974,7 +1023,7 @@ function toggleMenu()
                 text-xs
                 uppercase
                 font-bold
-                text-gray-400
+                text-gray-500
             "
         >
             Global Accuracy
@@ -984,7 +1033,7 @@ function toggleMenu()
             class="
                 text-3xl
                 font-black
-                text-[#ff9900]
+                text-[#008a66]
                 mt-1
             "
         >
@@ -1016,7 +1065,7 @@ function toggleMenu()
         <div
             class="
                 text-xs
-                text-gray-400
+                text-gray-500
                 uppercase
                 font-bold
             "
@@ -1028,7 +1077,7 @@ function toggleMenu()
             class="
                 text-2xl
                 font-black
-                text-green-400
+                text-[#00e07a]
                 mt-2
             "
         >
@@ -1058,7 +1107,7 @@ function toggleMenu()
         <div
             class="
                 text-xs
-                text-gray-400
+                text-gray-500
                 uppercase
                 font-bold
             "
@@ -1070,7 +1119,7 @@ function toggleMenu()
             class="
                 text-2xl
                 font-black
-                text-[#ff9900]
+                text-[#008a66]
                 mt-2
             "
         >
@@ -1100,7 +1149,7 @@ function toggleMenu()
         <div
             class="
                 text-xs
-                text-gray-400
+                text-gray-500
                 uppercase
                 font-bold
             "
@@ -1112,7 +1161,7 @@ function toggleMenu()
             class="
                 text-2xl
                 font-black
-                text-[#ff0080]
+                text-[#00e07a]
                 mt-2
             "
         >
@@ -1145,7 +1194,7 @@ function toggleMenu()
         <div
             class="
                 text-xs
-                text-gray-400
+                text-gray-500
                 uppercase
                 font-bold
             "
@@ -1170,7 +1219,7 @@ function toggleMenu()
             <div
                 class="
                     text-xs
-                    text-[#ff0080]
+                    text-[#00e07a]
                     font-bold
                 "
             >
@@ -1222,7 +1271,7 @@ function toggleMenu()
                     text-xs
                     uppercase
                     tracking-widest
-                    text-[#ff0080]
+                    text-[#00e07a]
                     font-black
                 "
             >
@@ -1248,8 +1297,8 @@ function toggleMenu()
 
         <div
             class="
-                bg-gradient-to-r from-[#e90052] to-[#ff9900]
-                text-white
+                bg-gradient-to-r from-[#005c44] to-[#00e07a]
+                text-[#0d0620]
                 px-5
                 py-3
                 rounded-xl
@@ -1266,14 +1315,14 @@ function toggleMenu()
         class="
             grid
             grid-cols-2
-            md:grid-cols-5
+            md:grid-cols-6
             gap-3
         "
     >
 
         <div
             class="
-                bg-black/25
+                bg-black/30
                 rounded-xl
                 p-4
                 text-center
@@ -1283,7 +1332,7 @@ function toggleMenu()
             <div
                 class="
                     text-xs
-                    text-gray-400
+                    text-gray-500
                 "
             >
                 POINTS
@@ -1293,7 +1342,7 @@ function toggleMenu()
                 class="
                     text-2xl
                     font-black
-                    text-[#ff0080]
+                    text-[#00e07a]
                 "
             >
                 <?= $my_stats['points'] ?>
@@ -1303,7 +1352,7 @@ function toggleMenu()
 
         <div
             class="
-                bg-black/25
+                bg-black/30
                 rounded-xl
                 p-4
                 text-center
@@ -1313,7 +1362,7 @@ function toggleMenu()
             <div
                 class="
                     text-xs
-                    text-gray-400
+                    text-gray-500
                 "
             >
                 PREDICTIONS
@@ -1333,7 +1382,7 @@ function toggleMenu()
 
         <div
             class="
-                bg-black/25
+                bg-black/30
                 rounded-xl
                 p-4
                 text-center
@@ -1343,7 +1392,7 @@ function toggleMenu()
             <div
                 class="
                     text-xs
-                    text-gray-400
+                    text-gray-500
                 "
             >
                 EXACT
@@ -1353,7 +1402,7 @@ function toggleMenu()
                 class="
                     text-2xl
                     font-black
-                    text-green-400
+                    text-[#00e07a]
                 "
             >
                 <?= $my_stats['exact'] ?>
@@ -1363,7 +1412,7 @@ function toggleMenu()
 
         <div
             class="
-                bg-black/25
+                bg-black/30
                 rounded-xl
                 p-4
                 text-center
@@ -1373,7 +1422,7 @@ function toggleMenu()
             <div
                 class="
                     text-xs
-                    text-gray-400
+                    text-gray-500
                 "
             >
                 CORRECT
@@ -1383,7 +1432,7 @@ function toggleMenu()
                 class="
                     text-2xl
                     font-black
-                    text-[#ff9900]
+                    text-[#008a66]
                 "
             >
                 <?= $my_stats['correct'] ?>
@@ -1393,7 +1442,7 @@ function toggleMenu()
 
         <div
             class="
-                bg-black/25
+                bg-black/30
                 rounded-xl
                 p-4
                 text-center
@@ -1403,7 +1452,7 @@ function toggleMenu()
             <div
                 class="
                     text-xs
-                    text-gray-400
+                    text-gray-500
                 "
             >
                 ACCURACY
@@ -1413,10 +1462,46 @@ function toggleMenu()
                 class="
                     text-2xl
                     font-black
-                    text-[#ff0080]
+                    text-[#00e07a]
                 "
             >
                 <?= $my_accuracy ?>%
+            </div>
+
+        </div>
+
+        <?php $myRatingTier = ratingGetTier((int)$my_stats['rating']); ?>
+
+        <div
+            class="
+                bg-black/30
+                rounded-xl
+                p-4
+                text-center
+            "
+        >
+
+            <div
+                class="
+                    text-xs
+                    text-gray-500
+                "
+            >
+                RATING
+            </div>
+
+            <div
+                class="
+                    text-2xl
+                    font-black
+                    text-[#ffd700]
+                "
+            >
+                <?= (int)$my_stats['rating'] ?>
+            </div>
+
+            <div class="rating-badge mt-2 mx-auto <?= e($myRatingTier['badge_class']) ?>">
+                <?= e($myRatingTier['label']) ?>
             </div>
 
         </div>
@@ -1453,12 +1538,12 @@ function toggleMenu()
 
         <p
             class="
-                text-gray-400
+                text-gray-500
                 text-sm
                 mt-1
             "
         >
-            Players ranked by total points
+            Players ranked by total points. Tap any row to open their profile.
         </p>
 
     </div>
@@ -1478,12 +1563,12 @@ function toggleMenu()
         class="
             hidden
             md:grid
-            grid-cols-[70px_1.8fr_1.5fr_100px_110px_110px_110px]
+            grid-cols-[70px_1.8fr_1.5fr_120px_100px_90px_110px_110px_110px]
             gap-4
             px-5
             py-4
             text-xs
-            text-gray-400
+            text-gray-500
             uppercase
             font-black
             tracking-wider
@@ -1500,6 +1585,10 @@ function toggleMenu()
 
         <div>
             Favorite Team
+        </div>
+
+        <div class="text-center">
+            Rating
         </div>
 
         <div class="text-center">
@@ -1552,9 +1641,13 @@ function toggleMenu()
                 )
                 : 0;
 
+            $playerRating = (int)($player['prediction_rating'] ?? 1500);
+            $playerRatingTier = ratingGetTier($playerRating);
+
         ?>
 
-        <div
+        <a
+            href="profile.php?id=<?= (int)$player['id'] ?>"
             class="
                 player-row
                 <?= $is_me
@@ -1572,13 +1665,14 @@ function toggleMenu()
                     $player['username']
                 )
             ) ?>"
+            title="View <?= e($player['username']) ?>'s profile"
         >
 
             <div
                 class="
                     hidden
                     md:grid
-                    grid-cols-[70px_1.8fr_1.5fr_100px_110px_110px_110px]
+                    grid-cols-[70px_1.8fr_1.5fr_120px_100px_90px_110px_110px_110px]
                     gap-4
                     items-center
                 "
@@ -1589,7 +1683,7 @@ function toggleMenu()
                         rank-number
                         text-xl
                         font-black
-                        text-[#ff9900]
+                        text-[#00e07a]
                     "
                 >
 
@@ -1611,13 +1705,15 @@ function toggleMenu()
                             w-11
                             h-11
                             rounded-full
-                            bg-[#1c003a]
+                            bg-[#0d0620]
                             flex
                             items-center
                             justify-center
                             font-black
                             flex-shrink-0
                             text-white
+                            border
+                            border-[#00e07a]/20
                         "
                     >
 
@@ -1658,7 +1754,7 @@ function toggleMenu()
                             <span
                                 class="
                                     text-[10px]
-                                    text-[#ff0080]
+                                    text-[#00e07a]
                                     font-black
                                 "
                             >
@@ -1714,7 +1810,7 @@ function toggleMenu()
 
                     <span
                         class="
-                            text-gray-300
+                            text-gray-400
                             font-semibold
                             truncate
                         "
@@ -1725,6 +1821,15 @@ function toggleMenu()
                         ) ?>
                     </span>
 
+                </div>
+
+                <div class="text-center">
+                    <div class="text-sm font-black text-[#ffd700] tabular-nums">
+                        <?= $playerRating ?>
+                    </div>
+                    <span class="rating-badge mt-1 <?= e($playerRatingTier['badge_class']) ?>">
+                        <?= e($playerRatingTier['label']) ?>
+                    </span>
                 </div>
 
                 <div
@@ -1745,7 +1850,7 @@ function toggleMenu()
                     class="
                         text-center
                         font-black
-                        text-green-400
+                        text-[#00e07a]
                     "
                 >
 
@@ -1759,7 +1864,7 @@ function toggleMenu()
                     class="
                         text-center
                         font-black
-                        text-[#ff9900]
+                        text-[#008a66]
                     "
                 >
 
@@ -1779,7 +1884,7 @@ function toggleMenu()
                         class="
                             text-xl
                             font-black
-                            text-[#ff0080]
+                            text-[#00e07a]
                         "
                     >
 
@@ -1838,7 +1943,7 @@ function toggleMenu()
                                 text-lg
                                 font-black
                                 w-8
-                                text-[#ff9900]
+                                text-[#00e07a]
                             "
                         >
                             <?= rankBadge(
@@ -1851,13 +1956,15 @@ function toggleMenu()
                                 w-10
                                 h-10
                                 rounded-full
-                                bg-[#1c003a]
+                                bg-[#0d0620]
                                 flex
                                 items-center
                                 justify-center
                                 font-black
                                 flex-shrink-0
                                 text-white
+                                border
+                                border-[#00e07a]/20
                             "
                         >
 
@@ -1896,7 +2003,7 @@ function toggleMenu()
                                 <span
                                     class="
                                         text-[10px]
-                                        text-[#ff0080]
+                                        text-[#00e07a]
                                         font-black
                                     "
                                 >
@@ -1918,9 +2025,24 @@ function toggleMenu()
 
                         <div
                             class="
+                                text-sm
+                                font-black
+                                text-[#ffd700]
+                            "
+                        >
+                            <?= $playerRating ?>
+                        </div>
+
+                        <span class="rating-badge mt-1 <?= e($playerRatingTier['badge_class']) ?>">
+                            <?= e($playerRatingTier['label']) ?>
+                        </span>
+
+                        <div
+                            class="
                                 text-xl
                                 font-black
-                                text-[#ff0080]
+                                text-[#00e07a]
+                                mt-2
                             "
                         >
                             <?= $player[
@@ -1931,7 +2053,7 @@ function toggleMenu()
                         <div
                             class="
                                 text-[9px]
-                                text-gray-400
+                                text-gray-500
                             "
                         >
                             POINTS
@@ -1978,7 +2100,7 @@ function toggleMenu()
                         <span
                             class="
                                 text-xs
-                                text-gray-300
+                                text-gray-400
                                 truncate
                             "
                         >
@@ -2027,7 +2149,7 @@ function toggleMenu()
                             <div
                                 class="
                                     font-black
-                                    text-green-400
+                                    text-[#00e07a]
                                 "
                             >
                                 <?= $player[
@@ -2050,7 +2172,7 @@ function toggleMenu()
                             <div
                                 class="
                                     font-black
-                                    text-[#ff9900]
+                                    text-[#008a66]
                                 "
                             >
                                 <?= $player[
@@ -2090,7 +2212,7 @@ function toggleMenu()
 
             </div>
 
-        </div>
+        </a>
 
         <?php
 
@@ -2160,9 +2282,9 @@ function toggleMenu()
 
         <div
             class="
-                bg-green-500/10
+                bg-[#00e07a]/10
                 border
-                border-green-500/20
+                border-[#00e07a]/20
                 rounded-xl
                 p-4
             "
@@ -2170,7 +2292,7 @@ function toggleMenu()
 
             <div
                 class="
-                    text-green-400
+                    text-[#00e07a]
                     font-black
                 "
             >
@@ -2192,9 +2314,9 @@ function toggleMenu()
 
         <div
             class="
-                bg-yellow-400/10
+                bg-[#008a66]/10
                 border
-                border-yellow-400/20
+                border-[#008a66]/20
                 rounded-xl
                 p-4
             "
@@ -2202,7 +2324,7 @@ function toggleMenu()
 
             <div
                 class="
-                    text-[#ff9900]
+                    text-[#008a66]
                     font-black
                 "
             >
@@ -2224,9 +2346,9 @@ function toggleMenu()
 
         <div
             class="
-                bg-pink-500/10
+                bg-[#005c44]/10
                 border
-                border-pink-500/20
+                border-[#005c44]/30
                 rounded-xl
                 p-4
             "
@@ -2234,7 +2356,7 @@ function toggleMenu()
 
             <div
                 class="
-                    text-[#ff0080]
+                    text-[#00e07a]
                     font-black
                 "
             >
@@ -2261,7 +2383,7 @@ function toggleMenu()
 <div
     class="
         text-center
-        text-gray-500
+        text-gray-600
         text-sm
         mt-10
     "
